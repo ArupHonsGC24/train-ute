@@ -1,0 +1,4 @@
+[submodule "raptor-rs"]
+	path = raptor-rs
+	url = https://github.com/ArupHonsGC24/raptor-rs.git
+	branch = main
