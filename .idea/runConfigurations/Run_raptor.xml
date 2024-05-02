@@ -1,6 +1,6 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="Run raptor-rs" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
-    <option name="command" value="run --package raptor-rs --bin raptor-rs" />
+  <configuration default="false" name="Run raptor" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
+    <option name="command" value="run --package raptor-rs --bin raptor-run" />
     <option name="workingDirectory" value="file://$PROJECT_DIR$" />
     <envs />
     <option name="emulateTerminal" value="true" />

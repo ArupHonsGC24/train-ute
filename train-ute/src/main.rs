@@ -1,10 +1,9 @@
-use raptor::Raptor;
+use raptor::raptor_query;
 use raptor::utils;
-use raptor::raptor::Timestamp;
 
 use chrono::NaiveDate;
 use gtfs_structures::Gtfs;
-
+use raptor::network::{Network, Timestamp};
 
 type StopIndex = u8;
 type TripIndex = u16;
@@ -18,27 +17,28 @@ struct Connection {
 }
 
 fn main() {
-    let default_transfer_time = 3 * 60;
     let gtfs = Gtfs::new("../gtfs/2/google_transit.zip").unwrap();
-    let journey_date = NaiveDate::from_ymd_opt(2024, 4, 29).unwrap();
-    let raptor = Raptor::new(&gtfs, journey_date, default_transfer_time);
 
-    let start = raptor.get_stop_idx("15351");
-    let end = raptor.get_stop_idx("19891");
+    let journey_date = NaiveDate::from_ymd_opt(2024, 4, 29).unwrap();
+    let default_transfer_time = 3 * 60;
+    let network = Network::new(&gtfs, journey_date, default_transfer_time);
+
+    let start = network.get_stop_idx("15351");
+    let end = network.get_stop_idx("19891");
     let start_time = utils::parse_time("8:30:00").unwrap();
 
-    let journey = raptor.query(start, start_time, end);
-    raptor.print_journey(&journey);
+    let journey = raptor_query(&network, start, start_time, end);
+    println!("{journey}");
 
     // Number of people at each stop of the network.
-    let mut stop_pop = vec![0u16; raptor.num_stops()];
+    let mut stop_pop = vec![0u16; network.num_stops()];
     // Number of people at each trip of the network.
     let mut trip_pop = vec![0u16; gtfs.trips.len()];
     
     // Construct list of connections from trips in Raptor.
-    for route in 0..raptor.num_routes() {
-        let num_stops = raptor.num_stops_in_route(route);
-        for trip in 0..raptor.num_trips(route) {
+    for route in 0..network.num_routes() {
+        let num_stops = network.num_stops_in_route(route);
+        for trip in 0..network.num_trips(route) {
             for stop in 1..num_stops {
                 
             }
