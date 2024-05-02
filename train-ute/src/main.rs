@@ -1,8 +1,21 @@
 use raptor::Raptor;
 use raptor::utils;
+use raptor::raptor::Timestamp;
 
 use chrono::NaiveDate;
 use gtfs_structures::Gtfs;
+
+
+type StopIndex = u8;
+type TripIndex = u16;
+
+struct Connection {
+    trip_idx: TripIndex,
+    start_idx: StopIndex,
+    stop_idx: StopIndex,
+    departure_time: Timestamp,
+    arrival_time: Timestamp,
+}
 
 fn main() {
     let default_transfer_time = 3 * 60;
@@ -21,6 +34,16 @@ fn main() {
     let mut stop_pop = vec![0u16; raptor.num_stops()];
     // Number of people at each trip of the network.
     let mut trip_pop = vec![0u16; gtfs.trips.len()];
+    
+    // Construct list of connections from trips in Raptor.
+    for route in 0..raptor.num_routes() {
+        let num_stops = raptor.num_stops_in_route(route);
+        for trip in 0..raptor.num_trips(route) {
+            for stop in 1..num_stops {
+                
+            }
+        }
+    }
 
     let mut trips = gtfs.trips.values().collect::<Vec<_>>();
     // Sort by departure time.
