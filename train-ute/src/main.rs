@@ -27,7 +27,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
 
     let start = network.get_stop_idx("15351");
     let end = network.get_stop_idx("19891");
-    let start_time = utils::parse_time("8:30:00").unwrap();
+    let start_time = utils::parse_time("8:30:00")?;
 
     let journey = raptor_query(&network, start, start_time, end);
     println!("{journey}");
@@ -76,7 +76,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
     let simulation_duration = Instant::now() - simulation_start;
     println!("Simulation duration: {simulation_duration:?}");
 
-    println!("Num agent transfers: {:?}", simulation_result.agent_transfers.len());
+    println!("Num agent transfers: {}", simulation_result.agent_transfers.len());
+
+    // Print a sample.
+    for agent_transfer in simulation_result.agent_transfers.iter().skip(10000).take(10) {
+        println!("Agent transfer: {}", agent_transfer.count);
+    }
+
+    println!();
+    println!("Total time: {:?}", Instant::now() - gtfs_start);
 
     Ok(())
 }

@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use raptor::Network;
+use raptor::{Network, raptor_query};
 use raptor::network::{StopIndex, Timestamp, TripIndex};
 
 pub type AgentCount = u16;
@@ -83,12 +83,19 @@ pub fn run_simulation(network: &Network, steps: &[SimulationStep], params: &Simu
     // Number of people at each trip of the network.
     // let mut trip_pop = vec![0 as AgentCount; gtfs.trips.len()];
 
+    let dest = network.get_stop_idx_from_name("Flinders Street").unwrap();
+
     let mut agent_transfers = Vec::new();
     for simulation_step in steps.iter() {
-        // let time_str = utils::get_time_str(simulation_step.time);
         match &simulation_step.op {
             SimulationOp::SpawnAgents { stop_idx, count } => {
-                stop_pop[*stop_idx as usize] += count;
+
+                let journey = raptor_query(network, *stop_idx, simulation_step.time, dest);
+                if let Some(first_leg) = journey.legs.first() {
+                    stop_pop[first_leg.arrival_stop as usize] += count;
+                } else {
+                    stop_pop[*stop_idx as usize] += count;
+                }
             }
             SimulationOp::DeleteAgents { stop_idx, count } => {
                 let stop_idx = *stop_idx as usize;
@@ -113,8 +120,6 @@ pub fn run_simulation(network: &Network, steps: &[SimulationStep], params: &Simu
                     stop_idx: connection.stop_idx,
                     count: num_agents_moved,
                 });
-
-                //println!("{time_str} - {num_agents_moved} agents moved.");
             }
         }
     }
