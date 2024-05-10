@@ -1,23 +1,29 @@
-mod simulation;
-mod myki;
-
-use raptor::network::{Network, StopIndex, Timestamp, TripIndex};
-use raptor::raptor_query;
-use raptor::utils;
-use simulation::AgentCount;
+use std::time::Instant;
 
 use chrono::NaiveDate;
-use gtfs_structures::Gtfs;
-use crate::simulation::{Connection, SimulationStep};
+use gtfs_structures::GtfsReader;
 
+use raptor::network::{Network, TripIndex};
+use raptor::raptor_query;
+use raptor::utils;
+
+use crate::simulation::{Connection, run_simulation, SimulationParams, SimulationStep};
+
+mod simulation;
+mod data_import;
 
 fn main() -> Result<(), Box<dyn std::error::Error>>{
+    let gtfs_start = Instant::now();
+    let gtfs = GtfsReader::default().read_shapes(false).read("../gtfs/2/google_transit.zip")?;
+    let gtfs_duration = Instant::now() - gtfs_start;
+    println!("GTFS import: {gtfs_duration:?}");
 
-    let gtfs = Gtfs::new("../gtfs/2/google_transit.zip").unwrap();
-
-    let journey_date = NaiveDate::from_ymd_opt(2024, 4, 29).unwrap();
+    let journey_date = NaiveDate::from_ymd_opt(2024, 5, 10).unwrap();
     let default_transfer_time = 3 * 60;
-    let network = Network::new(&gtfs, journey_date, default_transfer_time);
+    let network_start = Instant::now();
+    let mut network = Network::new(&gtfs, journey_date, default_transfer_time);
+    let network_duration = Instant::now() - network_start;
+    println!("Network parse: {network_duration:?}");
 
     let start = network.get_stop_idx("15351");
     let end = network.get_stop_idx("19891");
@@ -26,15 +32,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
     let journey = raptor_query(&network, start, start_time, end);
     println!("{journey}");
 
-    // Number of people at each stop of the network.
-    let mut stop_pop = vec![0 as AgentCount; network.num_stops()];
-    // Number of people at each trip of the network.
-    let mut trip_pop = vec![0 as AgentCount; gtfs.trips.len()];
+    // Set up simulation
+    let params = SimulationParams {
+        // From VicSig: X'Trapolis 3-car has 264 seated, 133 standing. A 6-car has 794 in total.
+        // Crush capacity is 1394, but that's a bit mean.
+        // https://vicsig.net/suburban/train/X'Trapolis
+        max_train_capacity: 794,
+    };
 
     // Add steps to spawn and delete agents based on data.
-    let data_path = "../data/Train_Service_Passenger_Counts_Financial_Year_2022-2023.csv";
-    let mut simulation_steps = myki::simulation_steps_from_csv(data_path, &network).unwrap();
-    
+    let data_path = "../data/Train_Service_Passenger_Counts_Financial_Year_2022-2023.parquet";
+    // HACK: Change network date to the year before so we have myki data for it.
+    network.date -= chrono::Duration::days(365);
+
+    let data_parse_start = Instant::now();
+    let mut simulation_steps = data_import::gen_simulation_steps(data_path, &network)?;
+    let data_parse_duration = Instant::now() - data_parse_start;
+    println!("Data parse duration: {data_parse_duration:?}");
+
     // Construct list of connections from trips in network.
     for route in 0..network.num_routes() {
         let num_stops = network.num_stops_in_route(route);
@@ -52,9 +67,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
     }
     
     simulation_steps.sort_unstable();
-    println!("Simulation steps: {:?}", simulation_steps.len());
+    println!("Num simulation steps: {:?}", simulation_steps.len());
 
-    for simulation_step in simulation_steps.iter() {}
-    
+    // Run simulation
+
+    let simulation_start = Instant::now();
+    let simulation_result = run_simulation(&network, &simulation_steps, &params);
+    let simulation_duration = Instant::now() - simulation_start;
+    println!("Simulation duration: {simulation_duration:?}");
+
+    println!("Num agent transfers: {:?}", simulation_result.agent_transfers.len());
+
     Ok(())
 }

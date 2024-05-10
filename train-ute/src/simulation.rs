@@ -1,4 +1,6 @@
 use std::cmp::Ordering;
+
+use raptor::Network;
 use raptor::network::{StopIndex, Timestamp, TripIndex};
 
 pub type AgentCount = u16;
@@ -58,4 +60,64 @@ impl SimulationStep {
             op: SimulationOp::RunConnection(connection),
         }
     }
+}
+
+pub struct SimulationParams {
+    pub max_train_capacity: AgentCount,
+}
+
+pub struct AgentTransfer {
+    pub start_idx: StopIndex,
+    pub stop_idx: StopIndex,
+    pub count: AgentCount,
+}
+
+pub struct SimulationResult {
+    pub agent_transfers: Vec<AgentTransfer>,
+}
+
+pub fn run_simulation(network: &Network, steps: &[SimulationStep], params: &SimulationParams) -> SimulationResult {
+
+    // Number of people at each stop of the network.
+    let mut stop_pop = vec![0 as AgentCount; network.num_stops()];
+    // Number of people at each trip of the network.
+    // let mut trip_pop = vec![0 as AgentCount; gtfs.trips.len()];
+
+    let mut agent_transfers = Vec::new();
+    for simulation_step in steps.iter() {
+        // let time_str = utils::get_time_str(simulation_step.time);
+        match &simulation_step.op {
+            SimulationOp::SpawnAgents { stop_idx, count } => {
+                stop_pop[*stop_idx as usize] += count;
+            }
+            SimulationOp::DeleteAgents { stop_idx, count } => {
+                let stop_idx = *stop_idx as usize;
+                stop_pop[stop_idx] = stop_pop[stop_idx].saturating_sub(*count);
+                //stop_pop[stop_idx] = match stop_pop[stop_idx].checked_sub(*count) {
+                //    Some(val) => val,
+                //    None => {
+                //        eprintln!("Negative agent count at stop {} at time {time_str}", network.get_stop(stop_idx).name);
+                //        0 as AgentCount
+                //    },
+                //};
+            }
+            SimulationOp::RunConnection(connection) => {
+                // Simplest model: all agents on are moved from start to stop.
+                let start_idx = connection.start_idx as usize;
+                let num_agents_moved = stop_pop[start_idx].min(params.max_train_capacity);
+                stop_pop[connection.stop_idx as usize] += num_agents_moved;
+                stop_pop[start_idx] -= num_agents_moved;
+
+                agent_transfers.push(AgentTransfer {
+                    start_idx: connection.start_idx,
+                    stop_idx: connection.stop_idx,
+                    count: num_agents_moved,
+                });
+
+                //println!("{time_str} - {num_agents_moved} agents moved.");
+            }
+        }
+    }
+
+    SimulationResult { agent_transfers }
 }
