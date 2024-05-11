@@ -11,10 +11,11 @@ use crate::simulation::{Connection, run_simulation, SimulationParams, Simulation
 
 mod simulation;
 mod data_import;
+mod data_export;
 
-fn main() -> Result<(), Box<dyn std::error::Error>>{
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let gtfs_start = Instant::now();
-    let gtfs = GtfsReader::default().read_shapes(false).read("../gtfs/2/google_transit.zip")?;
+    let gtfs = GtfsReader::default().read_shapes(true).read("../gtfs/2/google_transit.zip")?;
     let gtfs_duration = Instant::now() - gtfs_start;
     println!("GTFS import: {gtfs_duration:?}");
 
@@ -65,7 +66,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
             }
         }
     }
-    
+
     simulation_steps.sort_unstable();
     println!("Num simulation steps: {:?}", simulation_steps.len());
 
@@ -82,6 +83,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
     for agent_transfer in simulation_result.agent_transfers.iter().skip(10000).take(10) {
         println!("Agent transfer: {}", agent_transfer.count);
     }
+
+    println!("Exporting results.");
+
+    data_export::export_shape_file("../data/shapes.arrow", &gtfs)?;
 
     println!();
     println!("Total time: {:?}", Instant::now() - gtfs_start);
