@@ -4,3 +4,7 @@ members = [
     "train-ute",
     "raptor-rs", "patronage_data_processing",
 ]
+
+[profile.release-with-symbols]
+inherits = "release"
+debug = true

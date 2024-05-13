@@ -1,13 +1,18 @@
 use std::fs::File;
 use std::ops::Deref;
 use std::sync::Arc;
-use arrow::array::{Array, FixedSizeListBuilder, StringBuilder, UInt8Builder};
+
+use arrow::array::{Array, FixedSizeListBuilder, StringBuilder, Time32SecondArray, UInt16Array, UInt8Builder};
 use arrow::datatypes::{Field, Schema};
-use geoarrow::array::{CoordType, LineStringBuilder};
+use geoarrow::array::{CoordType, LineStringBuilder, PointBuilder};
 use geoarrow::datatypes::GeoDataType;
 use geoarrow::GeometryArrayTrait;
+use geoarrow::table::GeoTable;
 use gtfs_structures::Gtfs;
 use thiserror::Error;
+
+use raptor::Network;
+
 use crate::simulation::AgentTransfer;
 
 #[derive(Error, Debug)]
@@ -26,7 +31,7 @@ pub fn export_shape_file(path: &str, gtfs: &Gtfs) -> Result<(), DataExportError>
     let mut line_colours = FixedSizeListBuilder::with_capacity(
         UInt8Builder::new(),
         3,
-        num_shapes
+        num_shapes,
     );
     let mut line_colours_hex = StringBuilder::with_capacity(num_shapes, num_shapes * 7);
     for (shape_id, shape) in gtfs.shapes.iter() {
@@ -67,15 +72,39 @@ pub fn export_shape_file(path: &str, gtfs: &Gtfs) -> Result<(), DataExportError>
     let schema = Arc::new(Schema::new(vec![shape_arr.extension_field().deref().clone(), colour_field, colour_field_hex]));
 
     let record_batch = arrow::record_batch::RecordBatch::try_new(schema.clone(), vec![shape_arr.into_array_ref(), line_colour_arr, line_colour_arr_hex])?;
-    let mut tbl = geoarrow::table::GeoTable::from_arrow(vec![record_batch], schema, None, Some(GeoDataType::LineString(CoordType::Interleaved)))?;
+    let mut tbl = GeoTable::from_arrow(vec![record_batch], schema, None, Some(GeoDataType::LineString(CoordType::Interleaved)))?;
 
-    let mut shape_file = File::create(path)?;
-    Ok(geoarrow::io::ipc::write_ipc(&mut tbl, &mut shape_file)?)
+    let mut output_file = File::create(path)?;
+    Ok(geoarrow::io::ipc::write_ipc(&mut tbl, &mut output_file)?)
 }
 
-pub fn export_agent_transfers(path: &str, agent_transfers: &[AgentTransfer]) -> Result<(), DataExportError> {
+pub fn export_agent_transfers(path: &str, gtfs: &Gtfs, network: &Network, agent_transfers: &[AgentTransfer]) -> Result<(), DataExportError> {
+    // Precalculate stop points.
+    let mut stop_points = Vec::with_capacity(network.num_stops());
+    for stop_idx in 0..network.num_stops() {
+        let stop_id = network.get_stop(stop_idx).id.as_ref();
+        let stop = &gtfs.stops[stop_id];
+        stop_points.push(geo_types::Point(geo_types::Coord {
+            x: stop.longitude.unwrap(),
+            y: stop.latitude.unwrap(),
+        }));
+    }
 
+    // Convert to columnar format.
+    let timestamps_arr: Arc<Time32SecondArray> = Arc::new(agent_transfers.iter().map(|x| x.timestamp as i32).collect::<Vec<_>>().into());
+    let timestamp_field = Field::new("timestamp", timestamps_arr.data_type().clone(), false);
+    let agent_counts_arr: Arc<UInt16Array> = Arc::new(agent_transfers.iter().map(|x| x.count).collect());
+    let agent_counts_field = Field::new("count", agent_counts_arr.data_type().clone(), false);
+    let points = agent_transfers.iter().map(|x| stop_points[x.start_idx as usize]).collect::<Vec<_>>();
+    let point_arr = PointBuilder::from_points(points.iter(), Some(CoordType::Interleaved), Default::default()).finish();
 
+    let schema = Arc::new(Schema::new(vec![timestamp_field, agent_counts_field, point_arr.extension_field().deref().clone()]));
 
-    Ok(())
+    let record_batch = arrow::record_batch::RecordBatch::try_new(schema.clone(), vec![timestamps_arr, agent_counts_arr, point_arr.into_array_ref()])?;
+    let mut tbl = GeoTable::from_arrow(vec![record_batch], schema, None, Some(GeoDataType::Point(CoordType::Interleaved)))?;
+
+    let mut output_file = File::create(path)?;
+    //Ok(geoarrow::io::csv::write_csv(&mut tbl, &mut output_file)?)
+    //Ok(geoarrow::io::geojson::write_geojson(&mut tbl, &mut output_file)?)
+    Ok(geoarrow::io::ipc::write_ipc(&mut tbl, &mut output_file)?)
 }

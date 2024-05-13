@@ -13,6 +13,6 @@ parquet = {  version = "51.0.0" }
 arrow = "51.0.0"
 thiserror = "1.0.60"
 tqdm = "0.7.0"
-geoarrow = "0.2.0"
+geoarrow = { version = "0.2.0", features = ["csv"] }
 geo-types = "0.7.13"
 

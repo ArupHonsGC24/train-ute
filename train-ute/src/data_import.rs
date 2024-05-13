@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs::File;
 
 use arrow::array::{Array, AsArray, BooleanArray, Date32Array, RecordBatch};
@@ -64,6 +65,8 @@ pub fn gen_simulation_steps(path: &str, network: &Network) -> Result<Vec<Simulat
     let row_filter = RowFilter::new(vec![Box::new(DateFilterPredicate::new(network.date, builder.parquet_schema()))]);
     let builder = builder.with_row_filter(row_filter);
     let reader = builder.build()?;
+    
+    let mut station_name_map = HashMap::new();
 
     let mut simulation_steps = Vec::new();
     for batch in reader {
@@ -77,12 +80,18 @@ pub fn gen_simulation_steps(path: &str, network: &Network) -> Result<Vec<Simulat
 
         for i in 0..batch.num_rows() {
             let station_name = station_names.value(i);
-            let stop_idx = match network.get_stop_idx_from_name(&station_name) {
-                Some(idx) => idx,
-                None => {
-                    eprintln!("Station not found: {}", station_name);
-                    continue;
-                }
+            let stop_idx = if let Some(stop_idx) = station_name_map.get(station_name) {
+                *stop_idx
+            } else {
+                let stop_idx = match network.get_stop_idx_from_name(&station_name) {
+                    Some(idx) => idx,
+                    None => {
+                        eprintln!("Station not found: {}", station_name);
+                        continue;
+                    }
+                };
+                station_name_map.insert(station_name.to_string(), stop_idx);
+                stop_idx
             };
 
             let time = (departure_time_scheduled.value(i) / MICROSECONDS) as u32;
