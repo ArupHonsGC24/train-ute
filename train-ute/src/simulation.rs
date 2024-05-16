@@ -109,15 +109,19 @@ pub fn run_simulation(network: &Network, sorted_steps: &[SimulationStep], params
                 // Simplest model: all agents on are moved from start to stop.
                 let start_idx = connection.start_idx as usize;
                 let num_agents_moved = stop_pop[start_idx].min(params.max_train_capacity);
-                stop_pop[connection.stop_idx as usize] += num_agents_moved;
-                stop_pop[start_idx] -= num_agents_moved;
+                
+                // Only record active transfers.
+                if num_agents_moved > 0 {
+                    stop_pop[connection.stop_idx as usize] += num_agents_moved;
+                    stop_pop[start_idx] -= num_agents_moved;
 
-                agent_transfers.push(AgentTransfer {
-                    timestamp,
-                    start_idx: connection.start_idx,
-                    stop_idx: connection.stop_idx,
-                    count: num_agents_moved,
-                });
+                    agent_transfers.push(AgentTransfer {
+                        timestamp,
+                        start_idx: connection.start_idx,
+                        stop_idx: connection.stop_idx,
+                        count: num_agents_moved,
+                    });
+                }
             }
         }
     }

@@ -2,8 +2,8 @@ use std::fs::File;
 use std::ops::Deref;
 use std::sync::Arc;
 
-use arrow::array::{Array, FixedSizeListBuilder, StringBuilder, Time32SecondArray, UInt16Array, UInt8Builder};
-use arrow::datatypes::{Field, Schema};
+use arrow::array::{Array, FixedSizeListBuilder, Float64Array, StringBuilder, Time32SecondArray, TimestampSecondArray, UInt16Array, UInt8Builder};
+use arrow::datatypes::{Field, Schema, TimestampSecondType};
 use geoarrow::array::{CoordType, LineStringBuilder, PointBuilder};
 use geoarrow::datatypes::GeoDataType;
 use geoarrow::GeometryArrayTrait;
@@ -91,20 +91,38 @@ pub fn export_agent_transfers(path: &str, gtfs: &Gtfs, network: &Network, agent_
     }
 
     // Convert to columnar format.
-    let timestamps_arr: Arc<Time32SecondArray> = Arc::new(agent_transfers.iter().map(|x| x.timestamp as i32).collect::<Vec<_>>().into());
+    let date_timestamp = network.date.and_time(chrono::NaiveTime::MIN).and_utc().timestamp();
+    let timestamps_arr: Arc<TimestampSecondArray> = Arc::new(agent_transfers.iter().map(|x| date_timestamp + x.timestamp as i64).collect::<Vec<_>>().into());
     let timestamp_field = Field::new("timestamp", timestamps_arr.data_type().clone(), false);
     let agent_counts_arr: Arc<UInt16Array> = Arc::new(agent_transfers.iter().map(|x| x.count).collect());
     let agent_counts_field = Field::new("count", agent_counts_arr.data_type().clone(), false);
+    
+    let latitudes: Arc<Float64Array> = Arc::new(agent_transfers.iter().map(|x| stop_points[x.start_idx as usize].0.y).collect());
+    let latitudes_field = Field::new("latitude", latitudes.data_type().clone(), false);
+    let longitudes: Arc<Float64Array> = Arc::new(agent_transfers.iter().map(|x| stop_points[x.start_idx as usize].0.x).collect());
+    let longitudes_field = Field::new("longitude", longitudes.data_type().clone(), false);
+    
     let points = agent_transfers.iter().map(|x| stop_points[x.start_idx as usize]).collect::<Vec<_>>();
     let point_arr = PointBuilder::from_points(points.iter(), Some(CoordType::Interleaved), Default::default()).finish();
 
     let schema = Arc::new(Schema::new(vec![timestamp_field, agent_counts_field, point_arr.extension_field().deref().clone()]));
+    //let schema = Arc::new(Schema::new(vec![timestamp_field, agent_counts_field, latitudes_field, longitudes_field]));
 
     let record_batch = arrow::record_batch::RecordBatch::try_new(schema.clone(), vec![timestamps_arr, agent_counts_arr, point_arr.into_array_ref()])?;
-    let mut tbl = GeoTable::from_arrow(vec![record_batch], schema, None, Some(GeoDataType::Point(CoordType::Interleaved)))?;
-
+    //let record_batch = arrow::record_batch::RecordBatch::try_new(schema.clone(), vec![timestamps_arr, agent_counts_arr, latitudes, longitudes])?;
+    let mut tbl = GeoTable::from_arrow(vec![record_batch], schema.clone(), None, Some(GeoDataType::Point(CoordType::Interleaved)))?;
+    
     let mut output_file = File::create(path)?;
-    //Ok(geoarrow::io::csv::write_csv(&mut tbl, &mut output_file)?)
-    //Ok(geoarrow::io::geojson::write_geojson(&mut tbl, &mut output_file)?)
-    Ok(geoarrow::io::ipc::write_ipc(&mut tbl, &mut output_file)?)
+    
+    // let mut filewriter = arrow::ipc::writer::FileWriter::try_new(output_file, &schema)?;
+    // filewriter.write(&record_batch)?;
+    // filewriter.finish()?;
+    
+    geoarrow::io::parquet::write_geoparquet(&mut tbl, &mut output_file, None)?;
+    
+    //geoarrow::io::csv::write_csv(&mut tbl, &mut output_file)?;
+    //geoarrow::io::geojson::write_geojson(&mut tbl, &mut output_file)?;
+    //geoarrow::io::ipc::write_ipc(&mut tbl, &mut output_file)?;
+    
+    Ok(())
 }

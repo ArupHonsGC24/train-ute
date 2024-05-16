@@ -888,6 +888,7 @@ dependencies = [
  "indexmap",
  "itertools 0.12.1",
  "num_enum",
+ "parquet",
  "phf",
  "rstar",
  "serde",
@@ -2190,6 +2191,7 @@ dependencies = [
 name = "train-ute"
 version = "0.1.0"
 dependencies = [
+ "ahash 0.8.11",
  "arrow",
  "chrono",
  "geo-types",
