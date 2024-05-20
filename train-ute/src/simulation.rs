@@ -68,8 +68,9 @@ pub struct SimulationParams {
 
 pub struct AgentTransfer {
     pub timestamp: Timestamp,
+    pub arrival_time: Timestamp,
     pub start_idx: StopIndex,
-    pub stop_idx: StopIndex,
+    pub end_idx: StopIndex,
     pub count: AgentCount,
 }
 
@@ -116,9 +117,11 @@ pub fn run_simulation(network: &Network, sorted_steps: &[SimulationStep], params
                     stop_pop[start_idx] -= num_agents_moved;
 
                     agent_transfers.push(AgentTransfer {
+                        /* Simulation timestamp is departure time. */
                         timestamp,
+                        arrival_time: connection.arrival_time,
                         start_idx: connection.start_idx,
-                        stop_idx: connection.stop_idx,
+                        end_idx: connection.stop_idx,
                         count: num_agents_moved,
                     });
                 }

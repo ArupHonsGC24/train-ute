@@ -1,13 +1,8 @@
+use std::collections::HashMap;
 use std::fs::File;
-use std::ops::Deref;
-use std::sync::Arc;
+use std::io::Write;
+use std::mem;
 
-use arrow::array::{Array, FixedSizeListBuilder, Float64Array, StringBuilder, Time32SecondArray, TimestampSecondArray, UInt16Array, UInt8Builder};
-use arrow::datatypes::{Field, Schema, TimestampSecondType};
-use geoarrow::array::{CoordType, LineStringBuilder, PointBuilder};
-use geoarrow::datatypes::GeoDataType;
-use geoarrow::GeometryArrayTrait;
-use geoarrow::table::GeoTable;
 use gtfs_structures::Gtfs;
 use thiserror::Error;
 
@@ -17,65 +12,87 @@ use crate::simulation::AgentTransfer;
 
 #[derive(Error, Debug)]
 pub enum DataExportError {
-    #[error("Arrow error: {0}")]
-    ArrowError(#[from] arrow::error::ArrowError),
-    #[error("GeoArrow error: {0}")]
-    GeoArrowError(#[from] geoarrow::error::GeoArrowError),
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
 }
 
-pub fn export_shape_file(path: &str, gtfs: &Gtfs) -> Result<(), DataExportError> {
-    let num_shapes = gtfs.shapes.len();
-    let mut line_strings = Vec::with_capacity(num_shapes);
-    let mut line_colours = FixedSizeListBuilder::with_capacity(
-        UInt8Builder::new(),
-        3,
-        num_shapes,
-    );
-    let mut line_colours_hex = StringBuilder::with_capacity(num_shapes, num_shapes * 7);
-    for (shape_id, shape) in gtfs.shapes.iter() {
-        // Construct line string from shape.
-        let mut line_string = Vec::with_capacity(shape.len());
-        for point in shape {
-            line_string.push(geo_types::Coord {
-                x: point.longitude,
-                y: point.latitude,
-            });
+// Writes a set of binary data to a file in a simple format:
+// - A 32-bit byte offset and length for each data chunk.
+// - The binary data chunks, each aligned to 8 bytes.
+pub fn write_bin(path: &str, data_list: &[&[u8]]) -> std::io::Result<()> {
+    fn round_up_to_eight(num: usize) -> usize {
+        (num + 7) & !7
+    }
+
+    let mut output_file = File::create(path)?;
+
+    // A 32-bit byte offset and length for each data chunk, followed by the data chunks.
+    // We want the data to be aligned to 8 bytes.
+    let header_size = data_list.len() * 2 * mem::size_of::<u32>(); // 2 32-bit values per data chunk.
+    let mut index = header_size as u32; // Start past header.
+    let mut written_bytes = 0;
+    for &data in data_list {
+        written_bytes += output_file.write(&index.to_le_bytes())?;
+        written_bytes += output_file.write(&(data.len() as u32).to_le_bytes())?;
+        index += round_up_to_eight(data.len()) as u32;
+    }
+
+    // Sanity check.
+    assert_eq!(written_bytes, header_size);
+
+    // Write data, maintaining 8-byte alignment.
+    for &data in data_list {
+        output_file.write_all(data)?;
+        let padding = round_up_to_eight(data.len()) - data.len();
+        for _ in 0..padding {
+            output_file.write_all(&0u8.to_le_bytes())?;
         }
-        line_strings.push(geo_types::LineString::new(line_string));
+    }
 
+    Ok(())
+}
+
+pub fn export_shape_file(path: &str, gtfs: &Gtfs) -> Result<(), DataExportError> {
+    // TODO: Filter shapes.
+    let mut shape_points = Vec::new();
+    let mut shape_start_indices = Vec::new();
+    let mut shape_colours = Vec::new();
+
+    let mut colour_to_height_map = HashMap::new();
+    let mut last_height = 0.;
+
+    for (shape_id, shape) in gtfs.shapes.iter() {
         // Find the colour of the line by looking up the first trip that uses the shape, then the route of that trip.
-
         let trip = gtfs.trips.values().find(|trip| trip.shape_id.as_ref() == Some(shape_id)).unwrap();
         let colour = gtfs.routes.get(&trip.route_id).unwrap().color;
 
-        line_colours.values().append_value(colour.r);
-        line_colours.values().append_value(colour.g);
-        line_colours.values().append_value(colour.b);
-        line_colours.append(true);
+        // Determine height based on colour
+        let height = if let Some(&height) = colour_to_height_map.get(&colour) {
+            height
+        } else {
+            last_height += 10.;
+            colour_to_height_map.insert(colour, last_height);
+            last_height
+        };
 
-        line_colours_hex.append_value(&format!("#{:02X}{:02X}{:02X}", colour.r, colour.g, colour.b));
+        // Indices are based on points, not coordinates.
+        shape_start_indices.push(shape_points.len() as u32 / 3);
+
+        // Construct line string from shape.
+        for point in shape {
+            shape_points.push(point.longitude);
+            shape_points.push(point.latitude);
+            shape_points.push(height);
+
+            shape_colours.push(colour.r);
+            shape_colours.push(colour.g);
+            shape_colours.push(colour.b);
+        }
     }
 
-    let shape_arr = LineStringBuilder::<i32>::from_line_strings(
-        &line_strings,
-        Some(CoordType::Interleaved),
-        Default::default(),
-    ).finish();
+    write_bin(path, &[bytemuck::must_cast_slice(&shape_points), bytemuck::must_cast_slice(&shape_start_indices), &shape_colours])?;
 
-    let line_colour_arr = Arc::new(line_colours.finish());
-    let line_colour_arr_hex = Arc::new(line_colours_hex.finish());
-
-    let colour_field = Field::new("colour", line_colour_arr.data_type().clone(), false);
-    let colour_field_hex = Field::new("colour_hex", line_colour_arr_hex.data_type().clone(), false);
-    let schema = Arc::new(Schema::new(vec![shape_arr.extension_field().deref().clone(), colour_field, colour_field_hex]));
-
-    let record_batch = arrow::record_batch::RecordBatch::try_new(schema.clone(), vec![shape_arr.into_array_ref(), line_colour_arr, line_colour_arr_hex])?;
-    let mut tbl = GeoTable::from_arrow(vec![record_batch], schema, None, Some(GeoDataType::LineString(CoordType::Interleaved)))?;
-
-    let mut output_file = File::create(path)?;
-    Ok(geoarrow::io::ipc::write_ipc(&mut tbl, &mut output_file)?)
+    Ok(())
 }
 
 pub fn export_agent_transfers(path: &str, gtfs: &Gtfs, network: &Network, agent_transfers: &[AgentTransfer]) -> Result<(), DataExportError> {
@@ -84,45 +101,47 @@ pub fn export_agent_transfers(path: &str, gtfs: &Gtfs, network: &Network, agent_
     for stop_idx in 0..network.num_stops() {
         let stop_id = network.get_stop(stop_idx).id.as_ref();
         let stop = &gtfs.stops[stop_id];
-        stop_points.push(geo_types::Point(geo_types::Coord {
-            x: stop.longitude.unwrap(),
-            y: stop.latitude.unwrap(),
-        }));
+        stop_points.push((stop.longitude.unwrap(), stop.latitude.unwrap()));
     }
 
-    // Convert to columnar format.
-    let date_timestamp = network.date.and_time(chrono::NaiveTime::MIN).and_utc().timestamp();
-    let timestamps_arr: Arc<TimestampSecondArray> = Arc::new(agent_transfers.iter().map(|x| date_timestamp + x.timestamp as i64).collect::<Vec<_>>().into());
-    let timestamp_field = Field::new("timestamp", timestamps_arr.data_type().clone(), false);
-    let agent_counts_arr: Arc<UInt16Array> = Arc::new(agent_transfers.iter().map(|x| x.count).collect());
-    let agent_counts_field = Field::new("count", agent_counts_arr.data_type().clone(), false);
-    
-    let latitudes: Arc<Float64Array> = Arc::new(agent_transfers.iter().map(|x| stop_points[x.start_idx as usize].0.y).collect());
-    let latitudes_field = Field::new("latitude", latitudes.data_type().clone(), false);
-    let longitudes: Arc<Float64Array> = Arc::new(agent_transfers.iter().map(|x| stop_points[x.start_idx as usize].0.x).collect());
-    let longitudes_field = Field::new("longitude", longitudes.data_type().clone(), false);
-    
-    let points = agent_transfers.iter().map(|x| stop_points[x.start_idx as usize]).collect::<Vec<_>>();
-    let point_arr = PointBuilder::from_points(points.iter(), Some(CoordType::Interleaved), Default::default()).finish();
+    // A path list of 2-point paths representing transfers.
+    let num_transfers = agent_transfers.len();
 
-    let schema = Arc::new(Schema::new(vec![timestamp_field, agent_counts_field, point_arr.extension_field().deref().clone()]));
-    //let schema = Arc::new(Schema::new(vec![timestamp_field, agent_counts_field, latitudes_field, longitudes_field]));
+    let mut start_indices = Vec::with_capacity(num_transfers);
+    let mut points = Vec::with_capacity(num_transfers * 6);
+    let mut timestamps = Vec::with_capacity(num_transfers * 2);
+    let mut colours = Vec::with_capacity(num_transfers * 6);
 
-    let record_batch = arrow::record_batch::RecordBatch::try_new(schema.clone(), vec![timestamps_arr, agent_counts_arr, point_arr.into_array_ref()])?;
-    //let record_batch = arrow::record_batch::RecordBatch::try_new(schema.clone(), vec![timestamps_arr, agent_counts_arr, latitudes, longitudes])?;
-    let mut tbl = GeoTable::from_arrow(vec![record_batch], schema.clone(), None, Some(GeoDataType::Point(CoordType::Interleaved)))?;
-    
-    let mut output_file = File::create(path)?;
-    
-    // let mut filewriter = arrow::ipc::writer::FileWriter::try_new(output_file, &schema)?;
-    // filewriter.write(&record_batch)?;
-    // filewriter.finish()?;
-    
-    geoarrow::io::parquet::write_geoparquet(&mut tbl, &mut output_file, None)?;
-    
-    //geoarrow::io::csv::write_csv(&mut tbl, &mut output_file)?;
-    //geoarrow::io::geojson::write_geojson(&mut tbl, &mut output_file)?;
-    //geoarrow::io::ipc::write_ipc(&mut tbl, &mut output_file)?;
-    
+    let height = 100.;
+
+    for transfer in agent_transfers {
+        start_indices.push(points.len() as u32 / 3);
+
+        // Push the start and end points.
+        let start = stop_points[transfer.start_idx as usize];
+        points.push(start.0);
+        points.push(start.1);
+        points.push(height);
+
+        let end = stop_points[transfer.end_idx as usize];
+        points.push(end.0);
+        points.push(end.1);
+        points.push(height);
+
+        // Push the timestamps.
+        timestamps.push(transfer.timestamp as f32);
+        timestamps.push(transfer.arrival_time as f32);
+
+        // Push the colours.
+        // Purple for now.
+        for _ in 0..2 {
+            colours.push(0xA0u8);
+            colours.push(0x20u8);
+            colours.push(0xF0u8);
+        }
+    }
+
+    write_bin(path, &[bytemuck::must_cast_slice(&points), bytemuck::must_cast_slice(&start_indices), bytemuck::must_cast_slice(&timestamps), &colours])?;
+
     Ok(())
 }

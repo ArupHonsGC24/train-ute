@@ -3,17 +3,12 @@ name = "train-ute"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 raptor-rs = { path = "../raptor-rs" }
 chrono = { version = "0.4.38", default-features = false, features = ["serde"] }
 gtfs-structures = { version = "0.41.2", default-features = false }
-parquet = {  version = "51.0.0" }
-arrow = "51.0.0"
+parquet = { version = "51.0.0" }
+arrow = {  version = "51.0.0", default-features = false }
 thiserror = "1.0.60"
 tqdm = "0.7.0"
-geoarrow = { version = "0.2.0", features = ["csv", "parquet"] }
-geo-types = "0.7.13"
-ahash = "0.8.11"
-
+bytemuck = { version = "1.16.0", features = ["must_cast"] }
