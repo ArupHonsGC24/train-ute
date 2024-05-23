@@ -59,7 +59,7 @@ pub fn export_shape_file(path: &str, gtfs: &Gtfs) -> Result<(), DataExportError>
     let mut shape_colours = Vec::new();
 
     let mut colour_to_height_map = HashMap::new();
-    let mut last_height = 0.;
+    let mut last_height = 0f32;
 
     for (shape_id, shape) in gtfs.shapes.iter() {
         // Find the colour of the line by looking up the first trip that uses the shape, then the route of that trip.
@@ -80,8 +80,8 @@ pub fn export_shape_file(path: &str, gtfs: &Gtfs) -> Result<(), DataExportError>
 
         // Construct line string from shape.
         for point in shape {
-            shape_points.push(point.longitude);
-            shape_points.push(point.latitude);
+            shape_points.push(point.longitude as f32);
+            shape_points.push(point.latitude as f32);
             shape_points.push(height);
 
             shape_colours.push(colour.r);
@@ -132,7 +132,7 @@ pub fn export_agent_transfers(path: &str, gtfs: &Gtfs, network: &Network, agent_
         timestamps.push(transfer.timestamp as f32);
         timestamps.push(transfer.arrival_time as f32);
 
-        // Push the colours.
+        // Push the colours. TODO: Colour in and outbound.
         // Purple for now.
         for _ in 0..2 {
             colours.push(0xA0u8);
