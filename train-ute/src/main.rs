@@ -87,7 +87,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Exporting results.");
 
     data_export::export_shape_file("../train-vis/src/data/shapes.bin", &gtfs)?;
-    data_export::export_agent_transfers("../train-vis/src/data/transfers.bin", &gtfs, &network, &simulation_result.agent_transfers)?;
+    data_export::export_network_trips("../train-vis/src/data/trips.bin", &network)?;
+    data_export::export_agent_transfers("../train-vis/src/data/transfers.bin", &network, &simulation_result.agent_transfers)?;
 
     println!();
     println!("Total time: {:?}", Instant::now() - gtfs_start);

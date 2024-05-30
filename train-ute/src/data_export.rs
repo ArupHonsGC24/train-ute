@@ -95,15 +95,48 @@ pub fn export_shape_file(path: &str, gtfs: &Gtfs) -> Result<(), DataExportError>
     Ok(())
 }
 
-pub fn export_agent_transfers(path: &str, gtfs: &Gtfs, network: &Network, agent_transfers: &[AgentTransfer]) -> Result<(), DataExportError> {
-    // Precalculate stop points.
-    let mut stop_points = Vec::with_capacity(network.num_stops());
-    for stop_idx in 0..network.num_stops() {
-        let stop_id = network.get_stop(stop_idx).id.as_ref();
-        let stop = &gtfs.stops[stop_id];
-        stop_points.push((stop.longitude.unwrap(), stop.latitude.unwrap()));
+pub fn export_network_trips(path: &str, network: &Network) -> Result<(), DataExportError> {
+
+    let height = 100f32;
+
+    let mut start_indices = Vec::new();
+    let mut trip_points = Vec::new();
+    let mut trip_times = Vec::new();
+    let mut trip_colours = Vec::new();
+
+    for route in 0..network.num_routes() {
+        let num_stops = network.num_stops_in_route(route);
+        for trip in 0..network.num_trips(route) {
+            start_indices.push(trip_points.len() as u32 / 3);
+
+            for stop_order in 0..num_stops {
+                // Push location.
+                let stop_idx = network.get_stop_in_route(route, stop_order);
+
+                trip_points.push(network.stop_points[stop_idx as usize].0);
+                trip_points.push(network.stop_points[stop_idx as usize].1);
+                trip_points.push(height);
+
+                // Push time.
+                let arrival_time = network.get_arrival_time(route, trip, stop_order);
+                trip_times.push(arrival_time as f32);
+
+                // Push colour.
+                let route_colour = network.routes[route].color;
+                trip_colours.push(route_colour.0);
+                trip_colours.push(route_colour.1);
+                trip_colours.push(route_colour.2);
+            }
+        }
     }
 
+    write_bin(path, &[bytemuck::must_cast_slice(&trip_points), bytemuck::must_cast_slice(&start_indices), bytemuck::must_cast_slice(&trip_times), &trip_colours])?;
+
+    Ok(())
+}
+
+
+pub fn export_agent_transfers(path: &str, network: &Network, agent_transfers: &[AgentTransfer]) -> Result<(), DataExportError> {
     // A path list of 2-point paths representing transfers.
     let num_transfers = agent_transfers.len();
 
@@ -118,12 +151,12 @@ pub fn export_agent_transfers(path: &str, gtfs: &Gtfs, network: &Network, agent_
         start_indices.push(points.len() as u32 / 3);
 
         // Push the start and end points.
-        let start = stop_points[transfer.start_idx as usize];
+        let start = network.stop_points[transfer.start_idx as usize];
         points.push(start.0);
         points.push(start.1);
         points.push(height);
 
-        let end = stop_points[transfer.end_idx as usize];
+        let end = network.stop_points[transfer.end_idx as usize];
         points.push(end.0);
         points.push(end.1);
         points.push(height);
