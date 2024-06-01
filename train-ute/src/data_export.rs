@@ -1,12 +1,11 @@
-use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
 use std::mem;
 
-use gtfs_structures::Gtfs;
 use thiserror::Error;
 
 use raptor::Network;
+use raptor::network::NetworkPoint;
 
 use crate::simulation::AgentTransfer;
 
@@ -19,7 +18,7 @@ pub enum DataExportError {
 // Writes a set of binary data to a file in a simple format:
 // - A 32-bit byte offset and length for each data chunk.
 // - The binary data chunks, each aligned to 8 bytes.
-pub fn write_bin(path: &str, data_list: &[&[u8]]) -> std::io::Result<()> {
+fn write_bin(path: &str, data_list: &[&[u8]]) -> std::io::Result<()> {
     fn round_up_to_eight(num: usize) -> usize {
         (num + 7) & !7
     }
@@ -52,36 +51,31 @@ pub fn write_bin(path: &str, data_list: &[&[u8]]) -> std::io::Result<()> {
     Ok(())
 }
 
-pub fn export_shape_file(path: &str, gtfs: &Gtfs) -> Result<(), DataExportError> {
-    // TODO: Filter shapes.
+// Simple inverse quadratic easing.
+fn quadratic_inv_ease_in_out(t: f32) -> f32 {
+    if t < 0.5 {
+        (t * 0.5).sqrt()
+    } else {
+        1. - ((1. - t) * 0.5).sqrt()
+    }
+}
+
+pub fn export_shape_file(path: &str, network: &Network) -> Result<(), DataExportError> {
     let mut shape_points = Vec::new();
     let mut shape_start_indices = Vec::new();
     let mut shape_colours = Vec::new();
 
-    let mut colour_to_height_map = HashMap::new();
-    let mut last_height = 0f32;
-
-    for (shape_id, shape) in gtfs.shapes.iter() {
-        // Find the colour of the line by looking up the first trip that uses the shape, then the route of that trip.
-        let trip = gtfs.trips.values().find(|trip| trip.shape_id.as_ref() == Some(shape_id)).unwrap();
-        let colour = gtfs.routes.get(&trip.route_id).unwrap().color;
-
-        // Determine height based on colour
-        let height = if let Some(&height) = colour_to_height_map.get(&colour) {
-            height
-        } else {
-            last_height += 10.;
-            colour_to_height_map.insert(colour, last_height);
-            last_height
-        };
+    for route in network.routes.iter() {
+        let colour = route.colour;
+        let height = route.shape_height;
 
         // Indices are based on points, not coordinates.
         shape_start_indices.push(shape_points.len() as u32 / 3);
 
         // Construct line string from shape.
-        for point in shape {
-            shape_points.push(point.longitude as f32);
-            shape_points.push(point.latitude as f32);
+        for point in route.shape.iter() {
+            shape_points.push(point.longitude);
+            shape_points.push(point.latitude);
             shape_points.push(height);
 
             shape_colours.push(colour.r);
@@ -96,36 +90,98 @@ pub fn export_shape_file(path: &str, gtfs: &Gtfs) -> Result<(), DataExportError>
 }
 
 pub fn export_network_trips(path: &str, network: &Network) -> Result<(), DataExportError> {
+    const NUM_COORDS_PER_POINT: u32 = 3;
 
-    let height = 100f32;
-
+    // I haven't bothered to calculate capacities, but it's amortised constant to push anyway so there's not really any point.
     let mut start_indices = Vec::new();
     let mut trip_points = Vec::new();
     let mut trip_times = Vec::new();
     let mut trip_colours = Vec::new();
 
-    for route in 0..network.num_routes() {
-        let num_stops = network.num_stops_in_route(route);
-        for trip in 0..network.num_trips(route) {
-            start_indices.push(trip_points.len() as u32 / 3);
+    for route_idx in 0..network.num_routes() {
+        let num_stops = network.num_stops_in_route(route_idx);
+        let route_colour = network.routes[route_idx].colour;
+        let route_shape = &network.routes[route_idx].shape;
+        let height = network.routes[route_idx].shape_height;
 
-            for stop_order in 0..num_stops {
-                // Push location.
-                let stop_idx = network.get_stop_in_route(route, stop_order);
+        for trip_idx in 0..network.num_trips(route_idx) {
+            start_indices.push(trip_points.len() as u32 / NUM_COORDS_PER_POINT);
 
-                trip_points.push(network.stop_points[stop_idx as usize].0);
-                trip_points.push(network.stop_points[stop_idx as usize].1);
-                trip_points.push(height);
+            let mut shape_idx = 0;
+            for dep_stop_order in 0..num_stops - 1 {
+                let arr_stop_order = dep_stop_order + 1;
 
-                // Push time.
-                let arrival_time = network.get_arrival_time(route, trip, stop_order);
-                trip_times.push(arrival_time as f32);
+                let departure_time = network.get_departure_time(route_idx, trip_idx, dep_stop_order) as f32;
 
-                // Push colour.
-                let route_colour = network.routes[route].color;
-                trip_colours.push(route_colour.0);
-                trip_colours.push(route_colour.1);
-                trip_colours.push(route_colour.2);
+                let arr_stop_idx = network.get_stop_in_route(route_idx, arr_stop_order) as usize;
+                let arr_point = network.stop_points[arr_stop_idx];
+                let arrival_time = network.get_arrival_time(route_idx, trip_idx, arr_stop_order) as f32;
+
+                let mut push_point = |point: NetworkPoint, next_point: NetworkPoint| {
+                    // Location is offset to the left to separate inbound and outbound.
+                    const OFFSET: f32 = 20.;
+                    let offset_point = point.left_offset(next_point, OFFSET);
+                    trip_points.push(offset_point.longitude);
+                    trip_points.push(offset_point.latitude);
+                    trip_points.push(height);
+
+                    // Colour (RGBA)
+                    trip_colours.push(route_colour.r);
+                    trip_colours.push(route_colour.g);
+                    trip_colours.push(route_colour.b);
+                    trip_colours.push(255);
+                };
+
+                // Go through shape points and push.
+                let start_shape_idx = shape_idx;
+                let mut current_point = route_shape[shape_idx];
+                let mut distance_along_shape_section = 0f32;
+                while !current_point.very_close(arr_point) {
+                    if route_shape.len() <= shape_idx + 1 {
+                        println!("Warning: Shape index out of bounds for route {}, stop {}({arr_stop_order}).", network.routes[route_idx].line, network.stops[arr_stop_idx].name);
+                        break;
+                    }
+
+                    shape_idx += 1;
+                    let next_point = route_shape[shape_idx];
+                    distance_along_shape_section += current_point.distance(next_point);
+
+                    push_point(current_point, next_point);
+
+                    current_point = next_point;
+                }
+
+                // Push the arrival point.
+                shape_idx += 1;
+                if shape_idx < route_shape.len() {
+                    push_point(current_point, route_shape[shape_idx]);
+                } else {
+                    push_point(arr_point, arr_point);
+                }
+
+                // Calculate time assuming constant speed.
+                let section_duration = arrival_time - departure_time;
+                let mut distance = 0.;
+                for shape_idx in start_shape_idx..shape_idx {
+                    assert!(distance >= 0.);
+                    assert!(distance_along_shape_section > 0.);
+                    // Apply an easing function to the proportion, so trains accelerate and decelerate.
+                    // We use the inverse of the easing function for easing time.
+                    let proportion = quadratic_inv_ease_in_out(distance / distance_along_shape_section);
+                    let time = departure_time + section_duration * proportion;
+                    trip_times.push(time);
+                    let segment_distance = if shape_idx + 1 < route_shape.len() {
+                        route_shape[shape_idx].distance(route_shape[shape_idx + 1])
+                    } else {
+                        0.
+                    };
+                    distance += segment_distance;
+                }
+                
+                // This is required so we count the last point as the start of the next section.
+                shape_idx -= 1;
+
+                assert_eq!(trip_points.len(), trip_times.len() * NUM_COORDS_PER_POINT as usize);
             }
         }
     }
@@ -134,7 +190,6 @@ pub fn export_network_trips(path: &str, network: &Network) -> Result<(), DataExp
 
     Ok(())
 }
-
 
 pub fn export_agent_transfers(path: &str, network: &Network, agent_transfers: &[AgentTransfer]) -> Result<(), DataExportError> {
     // A path list of 2-point paths representing transfers.
@@ -152,13 +207,13 @@ pub fn export_agent_transfers(path: &str, network: &Network, agent_transfers: &[
 
         // Push the start and end points.
         let start = network.stop_points[transfer.start_idx as usize];
-        points.push(start.0);
-        points.push(start.1);
+        points.push(start.longitude);
+        points.push(start.latitude);
         points.push(height);
 
         let end = network.stop_points[transfer.end_idx as usize];
-        points.push(end.0);
-        points.push(end.1);
+        points.push(end.longitude);
+        points.push(end.latitude);
         points.push(height);
 
         // Push the timestamps.
@@ -171,6 +226,7 @@ pub fn export_agent_transfers(path: &str, network: &Network, agent_transfers: &[
             colours.push(0xA0u8);
             colours.push(0x20u8);
             colours.push(0xF0u8);
+            colours.push(0xFFu8);
         }
     }
 

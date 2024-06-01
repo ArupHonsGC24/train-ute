@@ -10,5 +10,4 @@ gtfs-structures = { version = "0.41.2", default-features = false }
 parquet = { version = "51.0.0" }
 arrow = {  version = "51.0.0", default-features = false }
 thiserror = "1.0.60"
-tqdm = "0.7.0"
 bytemuck = { version = "1.16.0", features = ["must_cast"] }
