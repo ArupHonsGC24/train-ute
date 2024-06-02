@@ -1215,10 +1215,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 
 [[package]]
-name = "patronage_data_gen"
-version = "0.1.0"
-
-[[package]]
 name = "patronage_data_processing"
 version = "0.1.0"
 dependencies = [
@@ -1805,7 +1801,9 @@ dependencies = [
  "chrono",
  "gtfs-structures",
  "parquet",
+ "rand",
  "raptor-rs",
+ "rgb",
  "thiserror",
  "zip 2.1.1",
 ]

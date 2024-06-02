@@ -8,8 +8,10 @@ use zip::ZipWriter;
 
 use raptor::Network;
 use raptor::network::NetworkPoint;
+use crate::colour::{hsv_to_rgb, rgb_to_hsv};
 
 use crate::simulation::AgentTransfer;
+use crate::simulationv2::SimulationResult;
 
 #[derive(Error, Debug)]
 pub enum DataExportError {
@@ -55,7 +57,16 @@ fn write_bin(path: &str, data_list: &[&[u8]]) -> std::io::Result<()> {
     Ok(())
 }
 
-// Simple inverse quadratic easing.
+// Simple quadratic easing.
+fn quadratic_ease_in_out(t: f32) -> f32 {
+    if t < 0.5 {
+        2. * t * t
+    } else {
+        (4. - 2. * t) * t - 1.
+    }
+}
+
+// Inverse of quadratic easing (for easing time)
 fn quadratic_inv_ease_in_out(t: f32) -> f32 {
     if t < 0.5 {
         (t * 0.5).sqrt()
@@ -93,7 +104,7 @@ pub fn export_shape_file(path: &str, network: &Network) -> Result<(), DataExport
     Ok(())
 }
 
-pub fn export_network_trips(path: &str, network: &Network) -> Result<(), DataExportError> {
+pub fn export_network_trips(path: &str, network: &Network, simulation_result: &SimulationResult) -> Result<(), DataExportError> {
     const NUM_COORDS_PER_POINT: u32 = 3;
 
     // I haven't bothered to calculate capacities, but it's amortised constant to push anyway so there's not really any point.
@@ -104,12 +115,16 @@ pub fn export_network_trips(path: &str, network: &Network) -> Result<(), DataExp
 
     for route_idx in 0..network.num_routes() {
         let num_stops = network.num_stops_in_route(route_idx);
-        let route_colour = network.routes[route_idx].colour;
-        let route_shape = &network.routes[route_idx].shape;
-        let height = network.routes[route_idx].shape_height;
+        let route = &network.routes[route_idx];
+        let route_colour = route.colour;
+        let route_hsv = rgb_to_hsv(route.colour);
+        let route_shape = &route.shape;
+        let height = route.shape_height;
 
         for trip_idx in 0..network.num_trips(route_idx) {
             start_indices.push(trip_points.len() as u32 / NUM_COORDS_PER_POINT);
+
+            let agent_counts = &simulation_result.agent_journeys[route.get_trip_range(trip_idx)];
 
             let mut shape_idx = 0;
             for dep_stop_order in 0..num_stops - 1 {
@@ -121,6 +136,20 @@ pub fn export_network_trips(path: &str, network: &Network) -> Result<(), DataExp
                 let arr_point = network.stop_points[arr_stop_idx];
                 let arrival_time = network.get_arrival_time(route_idx, trip_idx, arr_stop_order) as f32;
 
+                // Calculate alpha based on agent count.
+                let dep_count = agent_counts[dep_stop_order];
+                
+                // Ignore trips with no agents.
+                assert!(dep_count >= 0);
+                if dep_count == 0 {
+                    continue;
+                }
+                let dep_count = dep_count as f32;
+                let arr_count = agent_counts[arr_stop_order] as f32;
+                let agent_count_diff = arr_count - dep_count;
+                
+                const MAX_AGENT_COUNT: f32 = 50.;
+
                 let mut push_point = |point: NetworkPoint, next_point: NetworkPoint| {
                     // Location is offset to the left to separate inbound and outbound.
                     const OFFSET: f32 = 20.;
@@ -128,12 +157,6 @@ pub fn export_network_trips(path: &str, network: &Network) -> Result<(), DataExp
                     trip_points.push(offset_point.longitude);
                     trip_points.push(offset_point.latitude);
                     trip_points.push(height);
-
-                    // Colour (RGBA)
-                    trip_colours.push(route_colour.r);
-                    trip_colours.push(route_colour.g);
-                    trip_colours.push(route_colour.b);
-                    trip_colours.push(255);
                 };
 
                 // Go through shape points and push.
@@ -169,19 +192,35 @@ pub fn export_network_trips(path: &str, network: &Network) -> Result<(), DataExp
                 for shape_idx in start_shape_idx..shape_idx {
                     assert!(distance >= 0.);
                     assert!(distance_along_shape_section > 0.);
+
+                    // Calculate proportion along this shape we are, for interpolating properties.
                     // Apply an easing function to the proportion, so trains accelerate and decelerate.
                     // We use the inverse of the easing function for easing time.
-                    let proportion = quadratic_inv_ease_in_out(distance / distance_along_shape_section);
-                    let time = departure_time + section_duration * proportion;
+                    let proportion = distance / distance_along_shape_section;
+                    let proportion_inv = quadratic_inv_ease_in_out(proportion);
+                    let proportion = quadratic_ease_in_out(proportion);
+                    let time = departure_time + section_duration * proportion_inv;
                     trip_times.push(time);
+
+                    // Colour (RGBA). Calculate alpha based on agent count.
+                    let value = (dep_count + agent_count_diff * proportion) / MAX_AGENT_COUNT;
+                    let (h, s, v) = route_hsv;
+                    let shape_colour = hsv_to_rgb((h, s, value.clamp(0., 1.) as f64 * 255.));
+
+                    trip_colours.push(shape_colour.r);
+                    trip_colours.push(shape_colour.g);
+                    trip_colours.push(shape_colour.b);
+                    trip_colours.push(255);
+
                     let segment_distance = if shape_idx + 1 < route_shape.len() {
                         route_shape[shape_idx].distance(route_shape[shape_idx + 1])
                     } else {
                         0.
                     };
+
                     distance += segment_distance;
                 }
-                
+
                 // This is required so we count the last point as the start of the next section.
                 shape_idx -= 1;
 

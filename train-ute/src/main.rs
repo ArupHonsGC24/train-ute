@@ -12,6 +12,8 @@ use crate::simulation::{Connection, run_simulation, SimulationParams, Simulation
 mod simulation;
 mod data_import;
 mod data_export;
+mod simulationv2;
+mod colour;
 
 // Simulation notes:
 // When we get the O-D data, we can run journey planning for each OD and apply the passenger counts to the relevant trips.
@@ -48,54 +50,57 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Add steps to spawn and delete agents based on data.
-    let data_path = "../data/Train_Service_Passenger_Counts_Financial_Year_2022-2023.parquet";
-    // HACK: Change network date to the year before so we have myki data for it.
-    network.date -= chrono::Duration::days(365);
+    //let data_path = "../data/Train_Service_Passenger_Counts_Financial_Year_2022-2023.parquet";
+    //// HACK: Change network date to the year before so we have myki data for it.
+    //network.date -= chrono::Duration::days(365);
 
-    let data_parse_start = Instant::now();
-    let mut simulation_steps = data_import::gen_simulation_steps(data_path, &network)?;
-    let data_parse_duration = Instant::now() - data_parse_start;
-    println!("Data parse duration: {data_parse_duration:?}");
+    //let data_parse_start = Instant::now();
+    //let mut simulation_steps = data_import::gen_simulation_steps(data_path, &network)?;
+    //let data_parse_duration = Instant::now() - data_parse_start;
+    //println!("Data parse duration: {data_parse_duration:?}");
 
-    // Construct list of connections from trips in network.
-    for route in 0..network.num_routes() {
-        let num_stops = network.num_stops_in_route(route);
-        for trip in 0..network.num_trips(route) {
-            for stop_order in 1..num_stops {
-                simulation_steps.push(SimulationStep::from_connection(Connection {
-                    trip_idx: trip as TripIndex,
-                    start_idx: network.get_stop_in_route(route, stop_order - 1),
-                    stop_idx: network.get_stop_in_route(route, stop_order),
-                    departure_time: network.get_departure_time(route, trip, stop_order - 1),
-                    arrival_time: network.get_arrival_time(route, trip, stop_order),
-                }));
-            }
-        }
-    }
+    //// Construct list of connections from trips in network.
+    //for route in 0..network.num_routes() {
+    //    let num_stops = network.num_stops_in_route(route);
+    //    for trip in 0..network.num_trips(route) {
+    //        for stop_order in 1..num_stops {
+    //            simulation_steps.push(SimulationStep::from_connection(Connection {
+    //                trip_idx: trip as TripIndex,
+    //                start_idx: network.get_stop_in_route(route, stop_order - 1),
+    //                stop_idx: network.get_stop_in_route(route, stop_order),
+    //                departure_time: network.get_departure_time(route, trip, stop_order - 1),
+    //                arrival_time: network.get_arrival_time(route, trip, stop_order),
+    //            }));
+    //        }
+    //    }
+    //}
 
-    simulation_steps.sort_unstable();
-    println!("Num simulation steps: {:?}", simulation_steps.len());
+    //simulation_steps.sort_unstable();
+    //println!("Num simulation steps: {:?}", simulation_steps.len());
+    
+    let simulation_steps = simulationv2::gen_simulation_steps(&network, Some(0));
 
-    // Run simulation
+    //// Run simulation
 
     let simulation_start = Instant::now();
-    let simulation_result = run_simulation(&network, &simulation_steps, &params);
+    //let simulation_result = run_simulation(&network, &simulation_steps, &params);
+    let simulation_result = simulationv2::run_simulation_v2(&network, &simulation_steps, params);
     let simulation_duration = Instant::now() - simulation_start;
     println!("Simulation duration: {simulation_duration:?}");
 
-    println!("Num agent transfers: {}", simulation_result.agent_transfers.len());
+    //println!("Num agent transfers: {}", simulation_result.agent_transfers.len());
 
     // Print a sample.
-    for agent_transfer in simulation_result.agent_transfers.iter().skip(10000).take(10) {
-        println!("Agent transfer: {}", agent_transfer.count);
-    }
+    //for agent_transfer in simulation_result.agent_transfers.iter().skip(10000).take(10) {
+    //    println!("Agent transfer: {}", agent_transfer.count);
+    //}
 
     println!("Exporting results.");
     let export_start = Instant::now();
     
     data_export::export_shape_file("../train-vis/src/data/shapes.bin.zip", &network)?;
-    data_export::export_network_trips("../train-vis/src/data/trips.bin.zip", &network)?;
-    data_export::export_agent_transfers("../train-vis/src/data/transfers.bin.zip", &network, &simulation_result.agent_transfers)?;
+    data_export::export_network_trips("../train-vis/src/data/trips.bin.zip", &network, &simulation_result)?;
+    //data_export::export_agent_transfers("../train-vis/src/data/transfers.bin.zip", &network, &simulation_result.agent_transfers)?;
     
     let export_duration = Instant::now() - export_start;
     println!("Export duration: {export_duration:?}");
