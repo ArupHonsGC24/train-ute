@@ -93,9 +93,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Exporting results.");
     let export_start = Instant::now();
     
-    data_export::export_shape_file("../train-vis/src/data/shapes.bin", &network)?;
-    data_export::export_network_trips("../train-vis/src/data/trips.bin", &network)?;
-    data_export::export_agent_transfers("../train-vis/src/data/transfers.bin", &network, &simulation_result.agent_transfers)?;
+    data_export::export_shape_file("../train-vis/src/data/shapes.bin.zip", &network)?;
+    data_export::export_network_trips("../train-vis/src/data/trips.bin.zip", &network)?;
+    data_export::export_agent_transfers("../train-vis/src/data/transfers.bin.zip", &network, &simulation_result.agent_transfers)?;
     
     let export_duration = Instant::now() - export_start;
     println!("Export duration: {export_duration:?}");

@@ -2,7 +2,7 @@
 resolver = "2"
 members = [
     "train-ute",
-    "raptor-rs", "patronage_data_processing",
+    "raptor-rs", "patronage_data_processing", "patronage_data_gen",
 ]
 
 # Compile dependencies with as release even in debug mode.

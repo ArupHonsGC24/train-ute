@@ -3,6 +3,8 @@ use std::io::Write;
 use std::mem;
 
 use thiserror::Error;
+use zip::write::SimpleFileOptions;
+use zip::ZipWriter;
 
 use raptor::Network;
 use raptor::network::NetworkPoint;
@@ -15,7 +17,7 @@ pub enum DataExportError {
     IoError(#[from] std::io::Error),
 }
 
-// Writes a set of binary data to a file in a simple format:
+// Writes a set of binary data to a zip file in a simple format:
 // - A 32-bit byte offset and length for each data chunk.
 // - The binary data chunks, each aligned to 8 bytes.
 fn write_bin(path: &str, data_list: &[&[u8]]) -> std::io::Result<()> {
@@ -23,7 +25,9 @@ fn write_bin(path: &str, data_list: &[&[u8]]) -> std::io::Result<()> {
         (num + 7) & !7
     }
 
-    let mut output_file = File::create(path)?;
+    // Open zip file.
+    let mut zip = ZipWriter::new(File::create(path)?);
+    zip.start_file("data.bin", SimpleFileOptions::default())?;
 
     // A 32-bit byte offset and length for each data chunk, followed by the data chunks.
     // We want the data to be aligned to 8 bytes.
@@ -31,8 +35,8 @@ fn write_bin(path: &str, data_list: &[&[u8]]) -> std::io::Result<()> {
     let mut index = header_size as u32; // Start past header.
     let mut written_bytes = 0;
     for &data in data_list {
-        written_bytes += output_file.write(&index.to_le_bytes())?;
-        written_bytes += output_file.write(&(data.len() as u32).to_le_bytes())?;
+        written_bytes += zip.write(&index.to_le_bytes())?;
+        written_bytes += zip.write(&(data.len() as u32).to_le_bytes())?;
         index += round_up_to_eight(data.len()) as u32;
     }
 
@@ -41,10 +45,10 @@ fn write_bin(path: &str, data_list: &[&[u8]]) -> std::io::Result<()> {
 
     // Write data, maintaining 8-byte alignment.
     for &data in data_list {
-        output_file.write_all(data)?;
+        zip.write_all(data)?;
         let padding = round_up_to_eight(data.len()) - data.len();
         for _ in 0..padding {
-            output_file.write_all(&0u8.to_le_bytes())?;
+            zip.write_all(&0u8.to_le_bytes())?;
         }
     }
 
