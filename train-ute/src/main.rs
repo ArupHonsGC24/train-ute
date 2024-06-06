@@ -34,12 +34,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let network_duration = Instant::now() - network_start;
     println!("Network parse: {network_duration:?}");
 
-    let start = network.get_stop_idx("15351");
-    let end = network.get_stop_idx("19891");
-    let start_time = utils::parse_time("8:30:00")?;
+    //let start = network.get_stop_idx("15351");
+    //let end = network.get_stop_idx("19891");
+    //let start_time = utils::parse_time("8:30:00")?;
 
-    let journey = raptor_query(&network, start, start_time, end);
-    println!("{journey}");
+    //let journey = raptor_query(&network, start, start_time, end);
+    //println!("{journey}");
 
     // Set up simulation
     let params = SimulationParams {

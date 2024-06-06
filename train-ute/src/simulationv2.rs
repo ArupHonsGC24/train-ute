@@ -40,6 +40,7 @@ pub fn gen_simulation_steps(network: &Network, seed: Option<u64>) -> Vec<AgentJo
 
 pub fn run_simulation_v2(network: &Network, simulation_steps: &[AgentJourney], _params: SimulationParams) -> SimulationResult {
     // Agent counts need to be stored per trip stop, and signed so they can be temporarily negative.
+    // Note: this is embarrassingly parallel, and could be done in parallel with rayon.
     let mut trip_stops_pop = vec![0i32; network.stop_times.len()];
     for journey in simulation_steps {
         let query = raptor_query(network, journey.start_stop, journey.start_time, journey.end_stop);

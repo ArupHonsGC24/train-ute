@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::io::Write;
 use std::mem;
+use rgb::RGB8;
 
 use thiserror::Error;
 use zip::write::SimpleFileOptions;
@@ -104,6 +105,14 @@ pub fn export_shape_file(path: &str, network: &Network) -> Result<(), DataExport
     Ok(())
 }
 
+fn mix_rgb(a: RGB8, b: RGB8, t: f32) -> RGB8 {
+    RGB8 {
+        r: (a.r as f32 * (1. - t) + b.r as f32 * t) as u8,
+        g: (a.g as f32 * (1. - t) + b.g as f32 * t) as u8,
+        b: (a.b as f32 * (1. - t) + b.b as f32 * t) as u8,
+    }
+}
+
 pub fn export_network_trips(path: &str, network: &Network, simulation_result: &SimulationResult) -> Result<(), DataExportError> {
     const NUM_COORDS_PER_POINT: u32 = 3;
 
@@ -116,10 +125,11 @@ pub fn export_network_trips(path: &str, network: &Network, simulation_result: &S
     for route_idx in 0..network.num_routes() {
         let num_stops = network.num_stops_in_route(route_idx);
         let route = &network.routes[route_idx];
-        let route_colour = route.colour;
-        let route_hsv = rgb_to_hsv(route.colour);
         let route_shape = &route.shape;
         let height = route.shape_height;
+        
+        const LOW_COLOUR: RGB8 = RGB8 { r: 0, g: 0, b: 255 };
+        const HIGH_COLOUR: RGB8 = RGB8 { r: 255, g: 0, b: 0 };
 
         for trip_idx in 0..network.num_trips(route_idx) {
             start_indices.push(trip_points.len() as u32 / NUM_COORDS_PER_POINT);
@@ -159,7 +169,7 @@ pub fn export_network_trips(path: &str, network: &Network, simulation_result: &S
                     trip_points.push(height);
                 };
 
-                // Go through shape points and push.
+                // Go through shape points and add to point list.
                 let start_shape_idx = shape_idx;
                 let mut current_point = route_shape[shape_idx];
                 let mut distance_along_shape_section = 0f32;
@@ -185,14 +195,14 @@ pub fn export_network_trips(path: &str, network: &Network, simulation_result: &S
                 } else {
                     push_point(arr_point, arr_point);
                 }
-
-                // Calculate time assuming constant speed.
+                
+                // Calculate time based on distance proportion.
                 let section_duration = arrival_time - departure_time;
                 let mut distance = 0.;
                 for shape_idx in start_shape_idx..shape_idx {
                     assert!(distance >= 0.);
                     assert!(distance_along_shape_section > 0.);
-
+                    
                     // Calculate proportion along this shape we are, for interpolating properties.
                     // Apply an easing function to the proportion, so trains accelerate and decelerate.
                     // We use the inverse of the easing function for easing time.
@@ -204,8 +214,7 @@ pub fn export_network_trips(path: &str, network: &Network, simulation_result: &S
 
                     // Colour (RGBA). Calculate alpha based on agent count.
                     let value = (dep_count + agent_count_diff * proportion) / MAX_AGENT_COUNT;
-                    let (h, s, v) = route_hsv;
-                    let shape_colour = hsv_to_rgb((h, s, value.clamp(0., 1.) as f64 * 255.));
+                    let shape_colour = mix_rgb(LOW_COLOUR, HIGH_COLOUR, value);
 
                     trip_colours.push(shape_colour.r);
                     trip_colours.push(shape_colour.g);
