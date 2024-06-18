@@ -9,10 +9,8 @@ use zip::ZipWriter;
 
 use raptor::Network;
 use raptor::network::NetworkPoint;
-use crate::colour::{hsv_to_rgb, rgb_to_hsv};
-
-use crate::simulation::AgentTransfer;
-use crate::simulationv2::SimulationResult;
+use crate::simulation::SimulationResult;
+use crate::utils::{mix_rgb, quadratic_ease_in_out, quadratic_inv_ease_in_out};
 
 #[derive(Error, Debug)]
 pub enum DataExportError {
@@ -58,24 +56,6 @@ fn write_bin(path: &str, data_list: &[&[u8]]) -> std::io::Result<()> {
     Ok(())
 }
 
-// Simple quadratic easing.
-fn quadratic_ease_in_out(t: f32) -> f32 {
-    if t < 0.5 {
-        2. * t * t
-    } else {
-        (4. - 2. * t) * t - 1.
-    }
-}
-
-// Inverse of quadratic easing (for easing time)
-fn quadratic_inv_ease_in_out(t: f32) -> f32 {
-    if t < 0.5 {
-        (t * 0.5).sqrt()
-    } else {
-        1. - ((1. - t) * 0.5).sqrt()
-    }
-}
-
 pub fn export_shape_file(path: &str, network: &Network) -> Result<(), DataExportError> {
     let mut shape_points = Vec::new();
     let mut shape_start_indices = Vec::new();
@@ -103,14 +83,6 @@ pub fn export_shape_file(path: &str, network: &Network) -> Result<(), DataExport
     write_bin(path, &[bytemuck::must_cast_slice(&shape_points), bytemuck::must_cast_slice(&shape_start_indices), &shape_colours])?;
 
     Ok(())
-}
-
-fn mix_rgb(a: RGB8, b: RGB8, t: f32) -> RGB8 {
-    RGB8 {
-        r: (a.r as f32 * (1. - t) + b.r as f32 * t) as u8,
-        g: (a.g as f32 * (1. - t) + b.g as f32 * t) as u8,
-        b: (a.b as f32 * (1. - t) + b.b as f32 * t) as u8,
-    }
 }
 
 pub fn export_network_trips(path: &str, network: &Network, simulation_result: &SimulationResult) -> Result<(), DataExportError> {
@@ -243,46 +215,46 @@ pub fn export_network_trips(path: &str, network: &Network, simulation_result: &S
     Ok(())
 }
 
-pub fn export_agent_transfers(path: &str, network: &Network, agent_transfers: &[AgentTransfer]) -> Result<(), DataExportError> {
-    // A path list of 2-point paths representing transfers.
-    let num_transfers = agent_transfers.len();
-
-    let mut start_indices = Vec::with_capacity(num_transfers);
-    let mut points = Vec::with_capacity(num_transfers * 6);
-    let mut timestamps = Vec::with_capacity(num_transfers * 2);
-    let mut colours = Vec::with_capacity(num_transfers * 6);
-
-    let height = 100.;
-
-    for transfer in agent_transfers {
-        start_indices.push(points.len() as u32 / 3);
-
-        // Push the start and end points.
-        let start = network.stop_points[transfer.start_idx as usize];
-        points.push(start.longitude);
-        points.push(start.latitude);
-        points.push(height);
-
-        let end = network.stop_points[transfer.end_idx as usize];
-        points.push(end.longitude);
-        points.push(end.latitude);
-        points.push(height);
-
-        // Push the timestamps.
-        timestamps.push(transfer.timestamp as f32);
-        timestamps.push(transfer.arrival_time as f32);
-
-        // Push the colours. TODO: Colour in and outbound.
-        // Purple for now.
-        for _ in 0..2 {
-            colours.push(0xA0u8);
-            colours.push(0x20u8);
-            colours.push(0xF0u8);
-            colours.push(0xFFu8);
-        }
-    }
-
-    write_bin(path, &[bytemuck::must_cast_slice(&points), bytemuck::must_cast_slice(&start_indices), bytemuck::must_cast_slice(&timestamps), &colours])?;
-
-    Ok(())
-}
+// pub fn export_agent_transfers(path: &str, network: &Network, agent_transfers: &[AgentTransfer]) -> Result<(), DataExportError> {
+//     // A path list of 2-point paths representing transfers.
+//     let num_transfers = agent_transfers.len();
+// 
+//     let mut start_indices = Vec::with_capacity(num_transfers);
+//     let mut points = Vec::with_capacity(num_transfers * 6);
+//     let mut timestamps = Vec::with_capacity(num_transfers * 2);
+//     let mut colours = Vec::with_capacity(num_transfers * 6);
+// 
+//     let height = 100.;
+// 
+//     for transfer in agent_transfers {
+//         start_indices.push(points.len() as u32 / 3);
+// 
+//         // Push the start and end points.
+//         let start = network.stop_points[transfer.start_idx as usize];
+//         points.push(start.longitude);
+//         points.push(start.latitude);
+//         points.push(height);
+// 
+//         let end = network.stop_points[transfer.end_idx as usize];
+//         points.push(end.longitude);
+//         points.push(end.latitude);
+//         points.push(height);
+// 
+//         // Push the timestamps.
+//         timestamps.push(transfer.timestamp as f32);
+//         timestamps.push(transfer.arrival_time as f32);
+// 
+//         // Push the colours. TODO: Colour in and outbound.
+//         // Purple for now.
+//         for _ in 0..2 {
+//             colours.push(0xA0u8);
+//             colours.push(0x20u8);
+//             colours.push(0xF0u8);
+//             colours.push(0xFFu8);
+//         }
+//     }
+// 
+//     write_bin(path, &[bytemuck::must_cast_slice(&points), bytemuck::must_cast_slice(&start_indices), bytemuck::must_cast_slice(&timestamps), &colours])?;
+// 
+//     Ok(())
+// }
