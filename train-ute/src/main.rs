@@ -82,7 +82,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         network.transfer_times[flinders] = 4 * 60;
 
         let connections_start = Instant::now();
-        network.build_connections();
+        //network.build_connections();
         println!("Build connections: {:?}", connections_start.elapsed());
         
         network
@@ -100,7 +100,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let simulation_start = Instant::now();
     let simulation_result = simulation::run_simulation(&network, &simulation_steps, &params);
-    println!("Simulation duration: {:?}", simulation_start.elapsed());
+    println!("Simulation duration: {:?} to run {} steps", simulation_start.elapsed(), simulation_steps.len());
 
     println!("Exporting results.");
     let export_start = Instant::now();
