@@ -52,7 +52,7 @@ impl SimulationParams for DefaultSimulationParams {
 
     fn cost_fn(&self, count: PopulationCount) -> CrowdingCost {
         debug_assert!(count >= 0, "Negative population count");
-        let proportion = count as CrowdingCost / self.max_train_capacity as CrowdingCost;
+        let proportion = count as CrowdingCost / self.max_train_capacity() as CrowdingCost;
         Self::f(proportion)
     }
 }
