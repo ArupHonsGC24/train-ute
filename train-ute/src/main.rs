@@ -82,7 +82,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         network.transfer_times[flinders] = 4 * 60;
 
         let connections_start = Instant::now();
-        //network.build_connections();
+        network.build_connections();
         println!("Build connections: {:?}", connections_start.elapsed());
         
         network
@@ -95,12 +95,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // https://vicsig.net/suburban/train/X'Trapolis
         794,
     );
+    
+    // Run benchmark.
+    // simulation::simulation_benchmark(&network, &params, "../data/benchmark.csv")?;
 
-    let simulation_steps = simulation::gen_simulation_steps(&network, Some(0));
+    let simulation_steps = simulation::gen_simulation_steps(&network, None, Some(0));
 
     let simulation_start = Instant::now();
-    let simulation_result = simulation::run_simulation(&network, &simulation_steps, &params);
-    println!("Simulation duration: {:?} to run {} steps", simulation_start.elapsed(), simulation_steps.len());
+    let simulation_result = simulation::run_simulation::<_, true>(&network, &simulation_steps, &params);
+    println!("Simulation duration {:?} to run {} steps", simulation_start.elapsed(), simulation_steps.len());
 
     println!("Exporting results.");
     let export_start = Instant::now();
