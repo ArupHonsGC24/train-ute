@@ -63,23 +63,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Set up network.
     let network = {
         let gtfs_start = Instant::now();
+        // PTV GTFS:
+        // 1 - Regional Train
+        // 2 - Metropolitan Train
+        // 3 - Metropolitan Tram
+        // 4 - Metropolitan Bus
+        // 5 - Regional Coach
+        // 6 - Regional Bus
+        
         let gtfs = GtfsReader::default().read_shapes(true).read("../gtfs/2/google_transit.zip")?;
+        //let gtfs = GtfsReader::default().read_shapes(true).read("../gtfs/3/google_transit.zip")?;
+        //let gtfs = GtfsReader::default().read_shapes(true).read("../gtfs/4/google_transit.zip")?;
         //let gtfs = GtfsReader::default().read_shapes(true).read("../gtfs_processing/TokyoGTFS/tokyo_trains.zip")?;
         //let gtfs = GtfsReader::default().read_shapes(true).read("../gtfs_processing/tube-gtfs.zip")?;
         //let gtfs = GtfsReader::default().read_shapes(true).read("../gtfs_processing/srl-gtfs")?;
         //let gtfs = GtfsReader::default().read_shapes(true).read("../gtfs_processing/SRL/data/srl-gtfs")?;
 
         println!("GTFS import: {:?}", gtfs_start.elapsed());
+        gtfs.print_stats();
 
-        let journey_date = NaiveDate::from_ymd_opt(2024, 6, 3).unwrap();
+        let journey_date = NaiveDate::from_ymd_opt(2024, 6, 7).unwrap();
         let default_transfer_time = 3 * 60;
         let network_start = Instant::now();
         let mut network = Network::new(&gtfs, journey_date, default_transfer_time);
         println!("Network parse: {:?}", network_start.elapsed());
         
         // Set Flinders Street transfer time.
-        let flinders = network.get_stop_idx_from_name("Flinders Street").unwrap() as usize;
-        network.transfer_times[flinders] = 4 * 60;
+        //let flinders = network.get_stop_idx_from_name("Flinders Street").unwrap() as usize;
+        //network.transfer_times[flinders] = 4 * 60;
 
         let connections_start = Instant::now();
         network.build_connections();
@@ -102,16 +113,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let simulation_steps = simulation::gen_simulation_steps(&network, None, Some(0));
 
     let simulation_start = Instant::now();
-    let simulation_result = simulation::run_simulation::<_, true>(&network, &simulation_steps, &params);
+    let simulation_result = simulation::run_simulation::<_, false>(&network, &simulation_steps, &params);
     println!("Simulation duration {:?} to run {} steps", simulation_start.elapsed(), simulation_steps.len());
 
-    println!("Exporting results.");
-    let export_start = Instant::now();
-
-    data_export::export_shape_file("../train-vis/src/data/shapes.bin.zip", &network)?;
-    data_export::export_network_trips("../train-vis/src/data/trips.bin.zip", &network, &simulation_result)?;
-
-    println!("Export duration: {:?}", export_start.elapsed());
+    if network.has_shapes {
+        println!("Exporting results.");
+        let export_start = Instant::now();
+        data_export::export_shape_file("../train-vis/src/data/shapes.bin.zip", &network)?;
+        data_export::export_network_trips("../train-vis/src/data/trips.bin.zip", &network, &simulation_result)?;
+        println!("Export duration: {:?}", export_start.elapsed());
+    } else {
+        println!("Warning: GTFS shapes not loaded, no visualisation export.");
+    }
 
     println!();
     println!("Total time: {:?}", exec_start.elapsed());
