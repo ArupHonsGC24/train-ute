@@ -1,11 +1,14 @@
 use std::time::Instant;
+use std::fs::OpenOptions;
+use std::path::Path;
+use std::io::Write;
 
 use chrono::NaiveDate;
 use gtfs_structures::GtfsReader;
 
 use raptor::network::Network;
 
-use crate::simulation::{AgentCount, CrowdingCost, PopulationCount, SimulationParams};
+use crate::simulation::{AgentCount, CrowdingCost, PopulationCount, SimulationParams, SimulationResult};
 
 mod simulation;
 mod data_import;
@@ -59,7 +62,7 @@ impl SimulationParams for DefaultSimulationParams {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let exec_start = Instant::now();
-    
+
     // Set up network.
     let network = {
         let gtfs_start = Instant::now();
@@ -70,10 +73,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // 4 - Metropolitan Bus
         // 5 - Regional Coach
         // 6 - Regional Bus
-        
+
         let gtfs = GtfsReader::default().read_shapes(true).read("../gtfs/2/google_transit.zip")?;
         //let gtfs = GtfsReader::default().read_shapes(true).read("../gtfs/3/google_transit.zip")?;
         //let gtfs = GtfsReader::default().read_shapes(true).read("../gtfs/4/google_transit.zip")?;
+
         //let gtfs = GtfsReader::default().read_shapes(true).read("../gtfs_processing/TokyoGTFS/tokyo_trains.zip")?;
         //let gtfs = GtfsReader::default().read_shapes(true).read("../gtfs_processing/tube-gtfs.zip")?;
         //let gtfs = GtfsReader::default().read_shapes(true).read("../gtfs_processing/srl-gtfs")?;
@@ -87,7 +91,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let network_start = Instant::now();
         let mut network = Network::new(&gtfs, journey_date, default_transfer_time);
         println!("Network parse: {:?}", network_start.elapsed());
-        
+
         // Set Flinders Street transfer time.
         //let flinders = network.get_stop_idx_from_name("Flinders Street").unwrap() as usize;
         //network.transfer_times[flinders] = 4 * 60;
@@ -95,26 +99,48 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let connections_start = Instant::now();
         network.build_connections();
         println!("Build connections: {:?}", connections_start.elapsed());
-        
+
         network
     };
 
-    // Set up simulation
+    // Set up thread pool for benchmarking.
+    let num_processors = 40;
+    rayon::ThreadPoolBuilder::new().num_threads(num_processors).build_global()?;
+
+    // Set up simulation.
     let params = DefaultSimulationParams::new(
         // From VicSig: X'Trapolis 3-car has 264 seated, 133 standing. A 6-car has 794 in total.
         // Crush capacity is 1394, but that's a bit mean.
         // https://vicsig.net/suburban/train/X'Trapolis
         794,
     );
-    
-    // Run benchmark.
-    // simulation::simulation_benchmark(&network, &params, "../data/benchmark.csv")?;
 
+    // Run prefix sum benchmark.
+    //simulation::simulation_prefix_benchmark(&network, &params, "../data/benchmark.csv")?;
+
+    // Run simulation and print duration to csv.
     let simulation_steps = simulation::gen_simulation_steps(&network, None, Some(0));
 
+    let mut simulation_result = SimulationResult { agent_journeys: Vec::new() };
     let simulation_start = Instant::now();
-    let simulation_result = simulation::run_simulation::<_, false>(&network, &simulation_steps, &params);
-    println!("Simulation duration {:?} to run {} steps", simulation_start.elapsed(), simulation_steps.len());
+    let num_iterations = 5;
+    for _ in 0..num_iterations {
+        simulation_result = simulation::run_simulation::<_, true>(&network, &simulation_steps, &params);
+    }
+    let duration = simulation_start.elapsed() / num_iterations;
+
+    // Append to csv.
+    {
+        let simulation_benchmark_path = "../data/simulation_scaling.csv";
+        let exists = Path::new(simulation_benchmark_path).exists();
+        let mut simulation_benchmark_file = OpenOptions::new().append(true).create(true).open("../data/simulation_benchmark.csv")?;
+        if !exists {
+            writeln!(&mut simulation_benchmark_file, "num_processors,duration")?;
+        }
+        writeln!(&mut simulation_benchmark_file, "{num_processors},{}", duration.as_micros())?;
+
+        println!("Simulation duration {:?} to run {} steps", duration, simulation_steps.len());
+    }
 
     if network.has_shapes {
         println!("Exporting results.");

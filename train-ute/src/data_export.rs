@@ -22,9 +22,8 @@ pub enum DataExportError {
 // - A 32-bit byte offset and length for each data chunk.
 // - The binary data chunks, each aligned to 8 bytes.
 fn write_bin(path: &str, data_list: &[&[u8]]) -> std::io::Result<()> {
-    fn round_up_to_eight(num: usize) -> usize {
-        (num + 7) & !7
-    }
+    // Simple power-of-two alignment.
+    fn round_up_to_eight(num: usize) -> usize { (num + 7) & !7 }
 
     // Open zip file.
     let mut zip = ZipWriter::new(File::create(path)?);
