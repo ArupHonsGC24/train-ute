@@ -1,14 +1,23 @@
 use std::fs::File;
 use std::io::Write;
 use std::mem;
-use rgb::RGB8;
+use std::path::Path;
+use std::sync::Arc;
 
+use arrow::array::{Array, StringArray, TimestampMillisecondArray, UInt32Array};
+use arrow::datatypes::{Field, Schema};
+use itertools::{Itertools, izip};
+use parquet::basic::Compression;
+use parquet::file::properties::WriterProperties;
+use rgb::RGB8;
 use thiserror::Error;
 use zip::write::SimpleFileOptions;
 use zip::ZipWriter;
 
 use raptor::Network;
-use raptor::network::NetworkPoint;
+use raptor::network::{NetworkPoint, Timestamp};
+use raptor::utils::get_time_str;
+
 use crate::simulation::SimulationResult;
 use crate::utils::{mix_rgb, quadratic_ease_in_out, quadratic_inv_ease_in_out};
 
@@ -16,6 +25,12 @@ use crate::utils::{mix_rgb, quadratic_ease_in_out, quadratic_inv_ease_in_out};
 pub enum DataExportError {
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
+    #[error("Arrow error: {0}")]
+    ArrowError(#[from] arrow::error::ArrowError),
+    #[error("Parquet error: {0}")]
+    ParquetError(#[from] parquet::errors::ParquetError),
+    #[error("CSV error: {0}")]
+    CsvError(#[from] csv::Error),
 }
 
 // Writes a set of binary data to a zip file in a simple format:
@@ -214,46 +229,78 @@ pub fn export_network_trips(path: &str, network: &Network, simulation_result: &S
     Ok(())
 }
 
-// pub fn export_agent_transfers(path: &str, network: &Network, agent_transfers: &[AgentTransfer]) -> Result<(), DataExportError> {
-//     // A path list of 2-point paths representing transfers.
-//     let num_transfers = agent_transfers.len();
-// 
-//     let mut start_indices = Vec::with_capacity(num_transfers);
-//     let mut points = Vec::with_capacity(num_transfers * 6);
-//     let mut timestamps = Vec::with_capacity(num_transfers * 2);
-//     let mut colours = Vec::with_capacity(num_transfers * 6);
-// 
-//     let height = 100.;
-// 
-//     for transfer in agent_transfers {
-//         start_indices.push(points.len() as u32 / 3);
-// 
-//         // Push the start and end points.
-//         let start = network.stop_points[transfer.start_idx as usize];
-//         points.push(start.longitude);
-//         points.push(start.latitude);
-//         points.push(height);
-// 
-//         let end = network.stop_points[transfer.end_idx as usize];
-//         points.push(end.longitude);
-//         points.push(end.latitude);
-//         points.push(height);
-// 
-//         // Push the timestamps.
-//         timestamps.push(transfer.timestamp as f32);
-//         timestamps.push(transfer.arrival_time as f32);
-// 
-//         // Push the colours. TODO: Colour in and outbound.
-//         // Purple for now.
-//         for _ in 0..2 {
-//             colours.push(0xA0u8);
-//             colours.push(0x20u8);
-//             colours.push(0xF0u8);
-//             colours.push(0xFFu8);
-//         }
-//     }
-// 
-//     write_bin(path, &[bytemuck::must_cast_slice(&points), bytemuck::must_cast_slice(&start_indices), bytemuck::must_cast_slice(&timestamps), &colours])?;
-// 
-//     Ok(())
-// }
+// Exports the agent counts to a parquet (and csv) file.
+pub fn export_agent_counts(path: &str, network: &Network, simulation_result: &SimulationResult) -> Result<(), DataExportError> {
+    // This is the utc timestamp for the midnight of the day the network represents.
+    let date_timestamp = network.date.and_time(chrono::NaiveTime::MIN).and_utc().timestamp();
+
+    let mut trip_names = Vec::new();
+    let mut timestamps = Vec::new();
+    let mut departures = Vec::new();
+    let mut arrivals = Vec::new();
+    let mut agent_counts = Vec::new();
+
+    for route in network.routes.iter() {
+        for trip in 0..route.num_trips as usize {
+            let trip_name = route.trip_ids[trip].as_ref();
+            let trip_range = route.get_trip_range(trip);
+
+            let stop_times = network.stop_times[trip_range.clone()].iter().map(|stop_time|{
+                (date_timestamp + stop_time.departure_time as i64) * 1000 // Convert to milliseconds, as seconds is not as widely supported.
+            });
+            let stops = route.get_stops(&network.route_stops).iter().tuple_windows();
+            let trip_agent_counts = &simulation_result.agent_journeys[trip_range.clone()];
+
+            for ((&dep_stop_idx, &arr_stop_idx), time, &agent_count) in izip!(stops, stop_times, trip_agent_counts) {
+                trip_names.push(trip_name);
+                timestamps.push(time);
+                departures.push(network.stops[dep_stop_idx as usize].name.as_ref());
+                arrivals.push(network.stops[arr_stop_idx as usize].name.as_ref());
+                assert!(agent_count >= 0, "Negative agent count: {}", agent_count);
+                agent_counts.push(agent_count as u32);
+            }
+        }
+    }
+
+    // Set up arrow arrays.
+
+    let trip_names_arr = Arc::new(StringArray::from(trip_names.clone()));
+    let trip_name_field = Field::new("trip_name", trip_names_arr.data_type().clone(), false);
+
+    let timestamps_arr = Arc::new(TimestampMillisecondArray::from(timestamps.clone()));
+    let timestamp_field = Field::new("timestamp", timestamps_arr.data_type().clone(), false);
+
+    let departures_arr = Arc::new(StringArray::from(departures.clone()));
+    let departures_field = Field::new("departure", departures_arr.data_type().clone(), false);
+
+    let arrivals_arr = Arc::new(StringArray::from(arrivals.clone()));
+    let arrivals_field = Field::new("arrival", arrivals_arr.data_type().clone(), false);
+
+    let agent_counts_arr = Arc::new(UInt32Array::from(agent_counts.clone()));
+    let agent_counts_field = Field::new("count", agent_counts_arr.data_type().clone(), false);
+
+    let schema = Arc::new(Schema::new(vec![trip_name_field, timestamp_field, departures_field, arrivals_field, agent_counts_field]));
+    // TODO: A record batch per trip? Sort trips by earliest departure time?
+    let record_batch = arrow::record_batch::RecordBatch::try_new(schema, vec![trip_names_arr, timestamps_arr, departures_arr, arrivals_arr, agent_counts_arr])?;
+
+    // Write to parquet.
+    let props = WriterProperties::builder()
+        .set_compression(Compression::SNAPPY)
+        .build();
+    let mut writer = parquet::arrow::ArrowWriter::try_new(File::create(path)?, record_batch.schema(), Some(props))?;
+
+    writer.write(&record_batch)?;
+
+    writer.close()?;
+
+    // Write to csv (for debugging).
+    let csv_path = Path::new(path).with_extension("csv");
+
+    let mut csv_writer = csv::Writer::from_path(csv_path)?;
+    csv_writer.write_record(&["trip_name", "timestamp", "departure", "arrival", "count"])?;
+    for (trip_name, timestamp, departure, arrival, count) in izip!(trip_names, timestamps, departures, arrivals, agent_counts) {
+        csv_writer.write_record(&[trip_name, &get_time_str((timestamp - date_timestamp) as Timestamp), departure, arrival, &count.to_string()])?;
+    }
+
+    Ok(())
+}

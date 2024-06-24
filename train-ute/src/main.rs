@@ -86,7 +86,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("GTFS import: {:?}", gtfs_start.elapsed());
         gtfs.print_stats();
 
-        let journey_date = NaiveDate::from_ymd_opt(2024, 6, 7).unwrap();
+        let journey_date = NaiveDate::from_ymd_opt(2024, 5, 10).unwrap();
         let default_transfer_time = 3 * 60;
         let network_start = Instant::now();
         let mut network = Network::new(&gtfs, journey_date, default_transfer_time);
@@ -139,18 +139,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         writeln!(&mut simulation_benchmark_file, "{num_processors},{}", duration.as_micros())?;
 
-        println!("Simulation duration {:?} to run {} steps", duration, simulation_steps.len());
+      println!("Simulation duration {:?} to run {} steps", duration, simulation_steps.len());
     }
 
+    println!("Exporting results.");
+    let export_start = Instant::now();
+    data_export::export_agent_counts("../data/counts.parquet", &network, &simulation_result)?;
     if network.has_shapes {
-        println!("Exporting results.");
-        let export_start = Instant::now();
         data_export::export_shape_file("../train-vis/src/data/shapes.bin.zip", &network)?;
         data_export::export_network_trips("../train-vis/src/data/trips.bin.zip", &network, &simulation_result)?;
-        println!("Export duration: {:?}", export_start.elapsed());
     } else {
         println!("Warning: GTFS shapes not loaded, no visualisation export.");
     }
+    println!("Export duration: {:?}", export_start.elapsed());
 
     println!();
     println!("Total time: {:?}", exec_start.elapsed());

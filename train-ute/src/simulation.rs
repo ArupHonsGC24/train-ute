@@ -27,7 +27,7 @@ pub struct AgentJourney {
 }
 
 pub struct SimulationResult {
-    pub agent_journeys: Vec<i32>,
+    pub agent_journeys: Vec<PopulationCount>,
 }
 
 pub fn gen_simulation_steps(network: &Network, number: Option<usize>, seed: Option<u64>) -> Vec<AgentJourney> {
