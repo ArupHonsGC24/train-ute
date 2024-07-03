@@ -15,7 +15,7 @@ use zip::write::SimpleFileOptions;
 use zip::ZipWriter;
 
 use raptor::Network;
-use raptor::network::{NetworkPoint, Timestamp};
+use raptor::network::{CoordType, NetworkPoint, Timestamp};
 use raptor::utils::get_time_str;
 
 use crate::simulation::SimulationResult;
@@ -149,7 +149,7 @@ pub fn export_network_trips(path: &str, network: &Network, simulation_result: &S
 
                 let mut push_point = |point: NetworkPoint, next_point: NetworkPoint| {
                     // Location is offset to the left to separate inbound and outbound.
-                    const OFFSET: f32 = 20.;
+                    const OFFSET: CoordType = 20.;
                     let offset_point = point.left_offset(next_point, OFFSET);
                     trip_points.push(offset_point.longitude);
                     trip_points.push(offset_point.latitude);
@@ -159,7 +159,7 @@ pub fn export_network_trips(path: &str, network: &Network, simulation_result: &S
                 // Go through shape points and add to point list.
                 let start_shape_idx = shape_idx;
                 let mut current_point = route_shape[shape_idx];
-                let mut distance_along_shape_section = 0f32;
+                let mut distance_along_shape_section = 0. as CoordType;
                 while !current_point.very_close(arr_point) {
                     if route_shape.len() <= shape_idx + 1 {
                         println!("Warning: Shape index out of bounds for route {}, stop {}({arr_stop_order}).", network.routes[route_idx].line, network.stops[arr_stop_idx].name);
@@ -193,7 +193,7 @@ pub fn export_network_trips(path: &str, network: &Network, simulation_result: &S
                     // Calculate proportion along this shape we are, for interpolating properties.
                     // Apply an easing function to the proportion, so trains accelerate and decelerate.
                     // We use the inverse of the easing function for easing time.
-                    let proportion = distance / distance_along_shape_section;
+                    let proportion = (distance / distance_along_shape_section) as f32;
                     let proportion_inv = quadratic_inv_ease_in_out(proportion);
                     let proportion = quadratic_ease_in_out(proportion);
                     let time = departure_time + section_duration * proportion_inv;

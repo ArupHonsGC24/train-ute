@@ -67,7 +67,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // 5 - Regional Coach
         // 6 - Regional Bus
 
-        let gtfs = GtfsReader::default().read_shapes(false).read("../gtfs/2/google_transit_no_shapes.zip")?;
+        //let gtfs = GtfsReader::default().read_shapes(false).read("../gtfs/2/google_transit_no_shapes.zip")?;
+        let gtfs = GtfsReader::default().read_shapes(true).read("../gtfs/2/google_transit.zip")?;
         //let gtfs = GtfsReader::default().read_shapes(true).read("../gtfs/3/google_transit.zip")?;
         //let gtfs = GtfsReader::default().read_shapes(true).read("../gtfs/4/google_transit.zip")?;
         let journey_date = const_unwrap(NaiveDate::from_ymd_opt(2024, 5, 10));
