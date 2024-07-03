@@ -4,9 +4,8 @@ use std::time::Instant;
 
 use rand::prelude::*;
 use rayon::prelude::*;
-use tqdm::Iter;
-
-use raptor::{Network, raptor_query};
+use kdam::{TqdmIterator, TqdmParallelIterator};
+use raptor::{csa_query, Network, raptor_query};
 use raptor::network::{PathfindingCost, StopIndex, Timestamp};
 
 pub type AgentCount = u16;
@@ -66,8 +65,13 @@ pub fn run_simulation<T: SimulationParams, const P: bool>(network: &Network, sim
 
     let mut trip_stops_cost = vec![0 as CrowdingCost; network.stop_times.len()];
     // TODO: test just using map instead of atomics?
-    simulation_steps.par_iter().for_each(|journey| {
-        let query = raptor_query(network, journey.start_stop, journey.start_time, journey.end_stop, &trip_stops_cost);
+    simulation_steps.par_iter().tqdm().for_each(|journey| {
+        let query = if false {
+            csa_query(network, journey.start_stop, journey.start_time, journey.end_stop, &trip_stops_cost)
+        } else {
+            raptor_query(network, journey.start_stop, journey.start_time, journey.end_stop, &trip_stops_cost)
+        };
+
         for leg in query.legs {
             let route = &network.routes[leg.route_idx as usize];
             let trip = &trip_stops_pop[route.get_trip_range(leg.trip_idx as usize)];
@@ -79,6 +83,7 @@ pub fn run_simulation<T: SimulationParams, const P: bool>(network: &Network, sim
                 trip[boarded_stop_order].fetch_add(count, Ordering::SeqCst);
                 // Remove agent at stop (for inclusive-exclusive range).
                 trip[arrival_stop_order].fetch_sub(count, Ordering::SeqCst);
+                assert!(boarded_stop_order < arrival_stop_order, "{boarded_stop_order} < {arrival_stop_order}")
             } else {
                 // Iterate over all stops in the trip, adding the agent count.
                 for i in boarded_stop_order..arrival_stop_order {

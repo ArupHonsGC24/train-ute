@@ -113,9 +113,10 @@ pub fn export_network_trips(path: &str, network: &Network, simulation_result: &S
         let route = &network.routes[route_idx];
         let route_shape = &route.shape;
         let height = route.shape_height;
-        
-        const LOW_COLOUR: RGB8 = RGB8 { r: 0, g: 0, b: 255 };
-        const HIGH_COLOUR: RGB8 = RGB8 { r: 255, g: 0, b: 0 };
+
+        // Colour blind friendly colours from https://davidmathlogic.com/colorblind/#%23005AB5-%23DC3220
+        const LOW_COLOUR: RGB8 = RGB8 { r: 0, g: 90, b: 181 };
+        const HIGH_COLOUR: RGB8 = RGB8 { r: 220, g: 50, b: 32 };
 
         for trip_idx in 0..network.num_trips(route_idx) {
             start_indices.push(trip_points.len() as u32 / NUM_COORDS_PER_POINT);

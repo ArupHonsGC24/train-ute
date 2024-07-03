@@ -1,14 +1,14 @@
 use std::time::Instant;
-use std::fs::OpenOptions;
-use std::path::Path;
 use std::io::Write;
 
 use chrono::NaiveDate;
 use gtfs_structures::GtfsReader;
 
 use raptor::network::Network;
+use raptor::utils::const_unwrap;
 
 use crate::simulation::{AgentCount, CrowdingCost, PopulationCount, SimulationParams, SimulationResult};
+use crate::utils::create_pool;
 
 mod simulation;
 mod data_import;
@@ -23,20 +23,13 @@ mod utils;
 
 pub struct DefaultSimulationParams {
     pub max_train_capacity: AgentCount,
-    cost_lookup_table: [CrowdingCost; Self::SAMPLES + 1],
 }
 
 impl DefaultSimulationParams {
-    const SAMPLES: usize = 1000;
-    pub fn new(max_train_capacity: AgentCount) -> Self {
-        let mut result = Self {
+    pub const fn new(max_train_capacity: AgentCount) -> Self {
+        let result = Self {
             max_train_capacity,
-            cost_lookup_table: [0.; Self::SAMPLES + 1],
         };
-
-        for i in 0..=Self::SAMPLES {
-            result.cost_lookup_table[i] = Self::f((i as CrowdingCost) / Self::SAMPLES as CrowdingCost);
-        }
 
         result
     }
@@ -74,19 +67,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // 5 - Regional Coach
         // 6 - Regional Bus
 
-        let gtfs = GtfsReader::default().read_shapes(true).read("../gtfs/2/google_transit.zip")?;
+        let gtfs = GtfsReader::default().read_shapes(false).read("../gtfs/2/google_transit_no_shapes.zip")?;
         //let gtfs = GtfsReader::default().read_shapes(true).read("../gtfs/3/google_transit.zip")?;
         //let gtfs = GtfsReader::default().read_shapes(true).read("../gtfs/4/google_transit.zip")?;
+        let journey_date = const_unwrap(NaiveDate::from_ymd_opt(2024, 5, 10));
 
-        //let gtfs = GtfsReader::default().read_shapes(true).read("../gtfs_processing/TokyoGTFS/tokyo_trains.zip")?;
-        //let gtfs = GtfsReader::default().read_shapes(true).read("../gtfs_processing/tube-gtfs.zip")?;
+        //let gtfs = GtfsReader::default().read_shapes(false).read("../gtfs_processing/TokyoGTFS/tokyo_trains.zip")?;
+        //let gtfs = GtfsReader::default().read_shapes(false).read("../gtfs_processing/tube-gtfs.zip")?;
+        //let journey_date = const_unwrap(NaiveDate::from_ymd_opt(2024, 6, 8));
+
+        //let gtfs = GtfsReader::default().read_shapes(true).read("../gtfs_processing/la_gtfs.zip")?;
+        //let gtfs = GtfsReader::default().read_shapes(true).read("../gtfs_processing/ny_gtfs.zip")?;
+        //let gtfs = GtfsReader::default().read_shapes(true).read("../gtfs_processing/de_gtfs.zip")?;
+        //let journey_date = const_unwrap(NaiveDate::from_ymd_opt(2024, 6, 24));
+
         //let gtfs = GtfsReader::default().read_shapes(true).read("../gtfs_processing/srl-gtfs")?;
         //let gtfs = GtfsReader::default().read_shapes(true).read("../gtfs_processing/SRL/data/srl-gtfs")?;
 
         println!("GTFS import: {:?}", gtfs_start.elapsed());
         gtfs.print_stats();
 
-        let journey_date = NaiveDate::from_ymd_opt(2024, 5, 10).unwrap();
         let default_transfer_time = 3 * 60;
         let network_start = Instant::now();
         let mut network = Network::new(&gtfs, journey_date, default_transfer_time);
@@ -100,12 +100,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         network.build_connections();
         println!("Build connections: {:?}", connections_start.elapsed());
 
+        network.print_stats();
+
         network
     };
-
-    // Set up thread pool for benchmarking.
-    let num_processors = 40;
-    rayon::ThreadPoolBuilder::new().num_threads(num_processors).build_global()?;
 
     // Set up simulation.
     let params = DefaultSimulationParams::new(
@@ -115,46 +113,67 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         794,
     );
 
-    // Run prefix sum benchmark.
-    //simulation::simulation_prefix_benchmark(&network, &params, "../data/benchmark.csv")?;
+    loop {
+        print!("Enter number of processors to use: ");
+        std::io::stdout().flush()?;
+        let mut num_procs = String::new();
+        std::io::stdin().read_line(&mut num_procs)?;
+        let num_processors = num_procs.trim().parse()?;
+        // Set up thread pool for benchmarking.
+        create_pool(num_processors)?.install(|| -> std::io::Result<()> {
 
-    // Run simulation and print duration to csv.
-    let simulation_steps = simulation::gen_simulation_steps(&network, None, Some(0));
+            // Run prefix sum benchmark.
+            if false {
+                simulation::simulation_prefix_benchmark(&network, &params, "../data/benchmark.csv")?;
+            }
 
-    let mut simulation_result = SimulationResult { agent_journeys: Vec::new() };
-    let simulation_start = Instant::now();
-    let num_iterations = 5;
-    for _ in 0..num_iterations {
-        simulation_result = simulation::run_simulation::<_, true>(&network, &simulation_steps, &params);
+            // Run simulation and print duration to csv.
+            print!("Enter number of agents to use: ");
+            std::io::stdout().flush()?;
+            let mut num_agents = String::new();
+            std::io::stdin().read_line(&mut num_agents)?;
+            let num_agents = num_agents.trim().parse().unwrap();
+            let simulation_steps = simulation::gen_simulation_steps(&network, Some(num_agents), Some(0));
+
+            let mut simulation_result = SimulationResult { agent_journeys: Vec::new() };
+            let simulation_start = Instant::now();
+            let num_iterations = 1;
+            for _ in 0..num_iterations {
+                simulation_result = simulation::run_simulation::<_, true>(&network, &simulation_steps, &params);
+            }
+            let duration = simulation_start.elapsed() / (num_iterations * num_agents as u32);
+
+            // Append to csv.
+            if false {
+                use std::fs::OpenOptions;
+                use std::path::Path;
+
+                let simulation_benchmark_path = "../data/simulation_scaling.csv";
+                let exists = Path::new(simulation_benchmark_path).exists();
+                let mut simulation_benchmark_file = OpenOptions::new().append(true).create(true).open("../data/simulation_benchmark.csv")?;
+                if !exists {
+                    writeln!(&mut simulation_benchmark_file, "num_processors,duration")?;
+                }
+                writeln!(&mut simulation_benchmark_file, "{num_processors},{}", duration.as_micros())?;
+
+                println!("Simulation duration {} microseconds", duration.as_micros());
+            }
+
+            println!("Exporting results.");
+            let export_start = Instant::now();
+            data_export::export_agent_counts("../data/counts.parquet", &network, &simulation_result).unwrap();
+            if network.has_shapes {
+                data_export::export_shape_file("../train-vis/src/data/shapes.bin.zip", &network).unwrap();
+                data_export::export_network_trips("../train-vis/src/data/trips.bin.zip", &network, &simulation_result).unwrap();
+            } else {
+                println!("Warning: GTFS shapes not loaded, no visualisation export.");
+            }
+            println!("Export duration: {:?}", export_start.elapsed());
+
+            println!();
+            println!("Total time: {:?}", exec_start.elapsed());
+
+            Ok(())
+        })?;
     }
-    let duration = simulation_start.elapsed() / num_iterations;
-
-    // Append to csv.
-    {
-        let simulation_benchmark_path = "../data/simulation_scaling.csv";
-        let exists = Path::new(simulation_benchmark_path).exists();
-        let mut simulation_benchmark_file = OpenOptions::new().append(true).create(true).open("../data/simulation_benchmark.csv")?;
-        if !exists {
-            writeln!(&mut simulation_benchmark_file, "num_processors,duration")?;
-        }
-        writeln!(&mut simulation_benchmark_file, "{num_processors},{}", duration.as_micros())?;
-
-      println!("Simulation duration {:?} to run {} steps", duration, simulation_steps.len());
-    }
-
-    println!("Exporting results.");
-    let export_start = Instant::now();
-    data_export::export_agent_counts("../data/counts.parquet", &network, &simulation_result)?;
-    if network.has_shapes {
-        data_export::export_shape_file("../train-vis/src/data/shapes.bin.zip", &network)?;
-        data_export::export_network_trips("../train-vis/src/data/trips.bin.zip", &network, &simulation_result)?;
-    } else {
-        println!("Warning: GTFS shapes not loaded, no visualisation export.");
-    }
-    println!("Export duration: {:?}", export_start.elapsed());
-
-    println!();
-    println!("Total time: {:?}", exec_start.elapsed());
-
-    Ok(())
 }
