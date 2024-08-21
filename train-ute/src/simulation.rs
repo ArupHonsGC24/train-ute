@@ -122,8 +122,7 @@ pub fn run_simulation<T: SimulationParams, const P: bool>(network: &Network, sim
 }
 
 // Runs a benchmark and outputs to a csv file.
-#[allow(dead_code)]
-pub fn simulation_prefix_benchmark<T: SimulationParams>(network: &Network, params: &T, file: &str) -> std::io::Result<()> {
+pub fn _simulation_prefix_benchmark<T: SimulationParams>(network: &Network, params: &T, file: &str) -> std::io::Result<()> {
     let mut output = Vec::new();
     // CSV header.
     writeln!(&mut output, "num_steps,with_prefix,without_prefix,percent_difference")?;

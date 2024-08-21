@@ -1,11 +1,11 @@
+use std::fs;
 use std::time::Instant;
 use std::io::Write;
-
+use std::path::Path;
 use chrono::NaiveDate;
 use gtfs_structures::GtfsReader;
 
 use raptor::network::Network;
-use raptor::utils::const_unwrap;
 
 use crate::simulation::{AgentCount, CrowdingCost, PopulationCount, SimulationParams, SimulationResult};
 use crate::utils::create_pool;
@@ -53,49 +53,54 @@ impl SimulationParams for DefaultSimulationParams {
     }
 }
 
+fn user_input(prompt: &str) -> Result<Option<String>, std::io::Error> {
+    print!("{prompt}");
+    std::io::stdout().flush()?;
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input)?;
+    input.truncate(input.trim_end().len());
+    Ok(if input.is_empty() { None } else { Some(input) })
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let exec_start = Instant::now();
 
     // Set up network.
     let network = {
+        let gtfs_path = loop {
+            let gtfs_path = user_input("Enter GTFS path (default ../gtfs/2/google_transit.zip): ")?;
+            let gtfs_path = Path::new(gtfs_path.as_deref().unwrap_or("../gtfs/2/google_transit.zip"));
+
+            if gtfs_path.exists() {
+                let path = gtfs_path.to_string_lossy().to_string();
+                println!("Reading GTFS from {path}.");
+                break path;
+            } else {
+                println!("GTFS path {} does not exist.", gtfs_path.display());
+            }
+        };
+
         let gtfs_start = Instant::now();
-        // PTV GTFS:
-        // 1 - Regional Train
-        // 2 - Metropolitan Train
-        // 3 - Metropolitan Tram
-        // 4 - Metropolitan Bus
-        // 5 - Regional Coach
-        // 6 - Regional Bus
-
-        //let gtfs = GtfsReader::default().read_shapes(false).read("../gtfs/2/google_transit_no_shapes.zip")?;
-        let gtfs = GtfsReader::default().read_shapes(true).read("../gtfs/2/google_transit.zip")?;
-        //let gtfs = GtfsReader::default().read_shapes(true).read("../gtfs/3/google_transit.zip")?;
-        //let gtfs = GtfsReader::default().read_shapes(true).read("../gtfs/4/google_transit.zip")?;
-        let journey_date = const_unwrap(NaiveDate::from_ymd_opt(2024, 5, 10));
-
-        //let gtfs = GtfsReader::default().read_shapes(false).read("../gtfs_processing/TokyoGTFS/tokyo_trains.zip")?;
-        //let gtfs = GtfsReader::default().read_shapes(false).read("../gtfs_processing/tube-gtfs.zip")?;
-        //let journey_date = const_unwrap(NaiveDate::from_ymd_opt(2024, 6, 8));
-
-        //let gtfs = GtfsReader::default().read_shapes(true).read("../gtfs_processing/la_gtfs.zip")?;
-        //let gtfs = GtfsReader::default().read_shapes(true).read("../gtfs_processing/ny_gtfs.zip")?;
-        //let gtfs = GtfsReader::default().read_shapes(true).read("../gtfs_processing/de_gtfs.zip")?;
-        //let journey_date = const_unwrap(NaiveDate::from_ymd_opt(2024, 6, 24));
-
-        //let gtfs = GtfsReader::default().read_shapes(true).read("../gtfs_processing/srl-gtfs")?;
-        //let gtfs = GtfsReader::default().read_shapes(true).read("../gtfs_processing/SRL/data/srl-gtfs")?;
-
+        let gtfs = GtfsReader::default().read_from_path(gtfs_path)?;
         println!("GTFS import: {:?}", gtfs_start.elapsed());
         gtfs.print_stats();
+
+        let journey_date = loop {
+            let date_str = user_input("Which day to model (in 2024)? (DD/MM): ")?.unwrap_or(String::new());
+            // Hardcode year to 2024.
+            let date_str = format!("2024/{}", date_str.trim());
+            match NaiveDate::parse_from_str(&date_str, "%Y/%d/%m") {
+                Ok(parsed_date) => break parsed_date,
+                Err(e) => {
+                    println!("Invalid date format: {e:?}. Please try again.");
+                }
+            }
+        };
 
         let default_transfer_time = 3 * 60;
         let network_start = Instant::now();
         let mut network = Network::new(&gtfs, journey_date, default_transfer_time);
         println!("Network parse: {:?}", network_start.elapsed());
-
-        // Set Flinders Street transfer time.
-        //let flinders = network.get_stop_idx_from_name("Flinders Street").unwrap() as usize;
-        //network.transfer_times[flinders] = 4 * 60;
 
         let connections_start = Instant::now();
         network.build_connections();
@@ -122,12 +127,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let num_processors = num_procs.trim().parse()?;
         // Set up thread pool for benchmarking.
         create_pool(num_processors)?.install(|| -> std::io::Result<()> {
-
-            // Run prefix sum benchmark.
-            if false {
-                simulation::simulation_prefix_benchmark(&network, &params, "../data/benchmark.csv")?;
-            }
-
             // Run simulation and print duration to csv.
             print!("Enter number of agents to use: ");
             std::io::stdout().flush()?;
@@ -160,12 +159,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("Simulation duration {} microseconds", duration.as_micros());
             }
 
-            println!("Exporting results.");
+            let data_export_folder = Path::new("../train_ute_export");
+            println!("Exporting results to {}.", data_export_folder.display());
             let export_start = Instant::now();
-            data_export::export_agent_counts("../data/counts.parquet", &network, &simulation_result).unwrap();
+            fs::create_dir_all(data_export_folder)?;
+            data_export::export_agent_counts(&data_export_folder.join("counts"), &network, &simulation_result).unwrap();
+            data_export::export_stops(&data_export_folder.join("stops"), &network).unwrap();
             if network.has_shapes {
-                data_export::export_shape_file("../train-vis/src/data/shapes.bin.zip", &network).unwrap();
-                data_export::export_network_trips("../train-vis/src/data/trips.bin.zip", &network, &simulation_result).unwrap();
+                data_export::export_shape_file(&data_export_folder.join("shapes.bin.zip"), &network).unwrap();
+                data_export::export_network_trips(&data_export_folder.join("trips.bin.zip"), &network, &simulation_result).unwrap();
             } else {
                 println!("Warning: GTFS shapes not loaded, no visualisation export.");
             }
