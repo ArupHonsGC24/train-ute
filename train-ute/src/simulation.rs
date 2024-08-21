@@ -74,7 +74,7 @@ pub fn run_simulation<T: SimulationParams, const P: bool>(network: &Network, sim
 
         for leg in query.legs {
             let route = &network.routes[leg.route_idx as usize];
-            let trip = &trip_stops_pop[route.get_trip_range(leg.trip_idx as usize)];
+            let trip = &trip_stops_pop[route.get_trip_range(leg.trip_order as usize)];
             let count = journey.count as PopulationCount;
             let boarded_stop_order = leg.boarded_stop_order as usize;
             let arrival_stop_order = leg.arrival_stop_order as usize;
