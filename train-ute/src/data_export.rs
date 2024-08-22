@@ -312,7 +312,7 @@ pub fn export_agent_counts(path: &Path, network: &Network, simulation_result: &S
         csv_writer.write_record(&["trip_id", "timestamp", "departure", "departure_id", "arrival", "arrival_id", "count"])?;
         let date_str = network.date.to_string();
         for (trip_name, timestamp, departure, departure_id, arrival, arrival_id, count) in izip!(trip_ids, timestamps, departures, departure_ids, arrivals, arrival_ids, agent_counts) {
-            let timestamp = format!("{date_str}, {}", &get_time_str((timestamp/1000 - date_timestamp) as Timestamp));
+            let timestamp = format!("{date_str} {}", &get_time_str((timestamp/1000 - date_timestamp) as Timestamp));
             csv_writer.write_record(&[trip_name, &timestamp, departure, departure_id, arrival, arrival_id, &count.to_string()])?;
         }
     }

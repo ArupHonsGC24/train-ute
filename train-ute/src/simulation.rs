@@ -5,7 +5,7 @@ use std::time::Instant;
 use rand::prelude::*;
 use rayon::prelude::*;
 use kdam::{TqdmIterator, TqdmParallelIterator};
-use raptor::{csa_query, Network, raptor_query};
+use raptor::{csa_query, Network, raptor_query, mc_csa_query, mc_raptor_query};
 use raptor::network::{PathfindingCost, StopIndex, Timestamp};
 
 pub type AgentCount = u16;
@@ -67,9 +67,11 @@ pub fn run_simulation<T: SimulationParams, const P: bool>(network: &Network, sim
     // TODO: test just using map instead of atomics?
     simulation_steps.par_iter().tqdm().for_each(|journey| {
         let query = if false {
-            csa_query(network, journey.start_stop, journey.start_time, journey.end_stop, &trip_stops_cost)
+            csa_query(network, journey.start_stop, journey.start_time, journey.end_stop)
+            //mc_csa_query(network, journey.start_stop, journey.start_time, journey.end_stop, &trip_stops_cost)
         } else {
-            raptor_query(network, journey.start_stop, journey.start_time, journey.end_stop, &trip_stops_cost)
+            raptor_query(network, journey.start_stop, journey.start_time, journey.end_stop)
+            //mc_raptor_query(network, journey.start_stop, journey.start_time, journey.end_stop, &trip_stops_cost)
         };
 
         for leg in query.legs {

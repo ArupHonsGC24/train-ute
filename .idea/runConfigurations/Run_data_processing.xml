@@ -1,6 +1,6 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="Run raptor release" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
-    <option name="command" value="run --package raptor-rs --bin raptor-run --profile=release-with-symbols" />
+  <configuration default="false" name="Run data_processing" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
+    <option name="command" value="run --package patronage_data_processing --release" />
     <option name="workingDirectory" value="file://$PROJECT_DIR$" />
     <envs />
     <option name="emulateTerminal" value="true" />

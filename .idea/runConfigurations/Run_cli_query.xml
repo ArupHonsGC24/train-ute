@@ -1,6 +1,6 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="Run data_processing release" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
-    <option name="command" value="run --package patronage_data_processing --release" />
+  <configuration default="false" name="Run cli_query" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
+    <option name="command" value="run --package raptor-rs --example cli_query" />
     <option name="workingDirectory" value="file://$PROJECT_DIR$" />
     <envs />
     <option name="emulateTerminal" value="true" />
