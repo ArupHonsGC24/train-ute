@@ -6,6 +6,8 @@
       <sourceFolder url="file://$MODULE_DIR$/train-ute/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/patronage_data_processing/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/raptor-rs/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/raptor-rs/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/raptor-rs/dev_utils/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />
