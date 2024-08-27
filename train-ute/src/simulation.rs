@@ -2,11 +2,11 @@ use std::io::Write;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::time::Instant;
 
-use rand::prelude::*;
-use rayon::prelude::*;
 use kdam::{TqdmIterator, TqdmParallelIterator};
-use raptor::{csa_query, Network, raptor_query, mc_csa_query, mc_raptor_query};
+use rand::prelude::*;
 use raptor::network::{PathfindingCost, StopIndex, Timestamp};
+use raptor::{csa_query, raptor_query, Network};
+use rayon::prelude::*;
 
 pub type AgentCount = u16;
 pub type PopulationCount = i32;

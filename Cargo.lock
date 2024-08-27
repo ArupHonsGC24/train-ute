@@ -112,9 +112,9 @@ dependencies = [
 
 [[package]]
 name = "arrayvec"
-version = "0.7.4"
+version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "96d30a06541fbafbc7f82ed10c06164cfbd2c401138f6addd8404629c4b16711"
+checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
 
 [[package]]
 name = "arrow"
@@ -1735,13 +1735,13 @@ dependencies = [
 name = "raptor-rs"
 version = "0.1.0"
 dependencies = [
+ "arrayvec",
  "bnum",
  "chrono",
  "criterion",
  "dev_utils",
  "fastrand",
  "gtfs-structures",
- "kdam",
  "rgb",
 ]
 
@@ -2226,7 +2226,6 @@ dependencies = [
  "arrow 52.0.0",
  "bytemuck",
  "chrono",
- "criterion",
  "csv",
  "gtfs-structures",
  "itertools 0.13.0",
