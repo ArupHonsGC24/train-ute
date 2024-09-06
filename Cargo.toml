@@ -1,8 +1,10 @@
 [workspace]
 resolver = "2"
 members = [
+    "raptor-rs", 
+    "patronage_data_processing",
     "train-ute",
-    "raptor-rs", "patronage_data_processing",
+    "train-ui/src-tauri",
 ]
 
 # Compile dependencies with as release even in debug mode.
