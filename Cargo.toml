@@ -7,7 +7,7 @@ members = [
     "train-ui/src-tauri",
 ]
 
-# Compile dependencies with as release even in debug mode.
+# Compile dependencies as release even in debug mode.
 [profile.dev.package."*"]
 opt-level = 3
 

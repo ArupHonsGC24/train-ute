@@ -1,12 +1,12 @@
 {
   "productName": "train-ui",
   "version": "0.1.0",
-  "identifier": "com.tauri.dev",
+  "identifier": "com.blendersleuth.train-ui",
   "build": {
     "frontendDist": "../build",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "bun dev",
-    "beforeBuildCommand": "bun build"
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
   },
   "app": {
     "windows": [
