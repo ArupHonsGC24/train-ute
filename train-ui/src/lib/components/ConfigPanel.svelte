@@ -2,7 +2,7 @@
 	import Button from '$lib/components/Button.svelte';
 
 	let input_files: FileList | null = null;
-	let loaded_gtfs_zip: Uint8Array | null = null;
+	let loaded_gtfs_zip: ArrayBuffer | undefined = undefined;
 
 	// A bit of fancy async/await to handle the file upload.
 	async function loadGTFS(event: Event) {
@@ -10,11 +10,11 @@
 			let file = input_files[0];
 
 			if (file.name.endsWith('.zip')) {
-				let buffer = await file.arrayBuffer();
-				loaded_gtfs_zip = new Uint8Array(buffer);
+				loaded_gtfs_zip = await file.arrayBuffer();
 			} else {
-				alert('Invalid file type. Please upload a .zip file.');
+				alert('Invalid file type. Please load a .zip file.');
 				input_files = null;
+				loaded_gtfs_zip = undefined;
 				(event.currentTarget as HTMLInputElement).value = '';
 			}
 		}
@@ -25,9 +25,6 @@
 
 <div class="config-panel">
 	<label for="gtfs">Load GTFS:</label>
-	<!--
-		<Button text="Load GTFS" class="cfg-style" command="load_gtfs" />
-	-->
 	<input type="file" accept=".zip" id="gtfs" class="cfg-style" bind:files={input_files} on:change={loadGTFS}>
 
 	<label for="model-date">Date to Model:</label>
@@ -43,9 +40,10 @@
 	<Button text="Generate Network"
 					class="cfg-style"
 					command="gen_network"
-					disabled={loaded_gtfs_zip === null}
+					disabled={loaded_gtfs_zip == null}
 					disabled_tooltip="Load GTFS and select date first."
-					args={ { gtfsZip: loaded_gtfs_zip } }
+					args={ loaded_gtfs_zip }
+					headers={{ model_date }}
 	/>
 
 	<Button text="Patronage Data Import" command="print_hello" class="cfg-style" />
@@ -80,6 +78,10 @@
 	input {
 		background-color: #5E503F;
 		color: white;
+	}
+
+	input[type="file"] {
+		color-scheme: light;
 	}
 
 	.network-buttons {

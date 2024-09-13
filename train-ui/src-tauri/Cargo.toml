@@ -29,3 +29,4 @@ tauri-plugin-dialog = "2.0.0-rc"
 
 gtfs-structures = { version = "^0.41.2", default-features = false }
 chrono = { version = "^0.4.38", default-features = false, features = [] }
+thiserror = "1.0.61"

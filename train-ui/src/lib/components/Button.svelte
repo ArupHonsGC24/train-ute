@@ -1,10 +1,11 @@
 <script lang="ts">
-	import { invoke, type InvokeArgs } from '@tauri-apps/api/core';
+	import { invoke, type InvokeArgs, type InvokeOptions } from '@tauri-apps/api/core';
 
 	export let text: string;
 	export let disabled_tooltip = '';
 	export let command: string;
 	export let args: InvokeArgs | undefined = undefined;
+	export let headers: Record<string, string> | undefined = undefined;
 	export let disabled = false;
 
 	let className = '';
@@ -15,7 +16,7 @@
 
 	async function handleClick() {
 		console.log(`Invoking ${command} with args: ${args}`);
-		await invoke(`${command}`, args);
+		await invoke(`${command}`, args, headers ? { headers } : undefined);
 	}
 </script>
 
