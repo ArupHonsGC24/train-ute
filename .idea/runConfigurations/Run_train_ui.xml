@@ -1,8 +1,8 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="Run mc_raptor release" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
+  <configuration default="false" name="Run train ui" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
     <option name="buildProfileId" value="dev" />
-    <option name="command" value="run --package raptor-rs --example mc_raptor --profile=release-with-symbols" />
-    <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+    <option name="command" value="run --no-default-features --bin train-ui" />
+    <option name="workingDirectory" value="file://$PROJECT_DIR$/train-ui" />
     <envs />
     <option name="emulateTerminal" value="true" />
     <option name="channel" value="DEFAULT" />
@@ -10,7 +10,7 @@
     <option name="allFeatures" value="false" />
     <option name="withSudo" value="false" />
     <option name="buildTarget" value="REMOTE" />
-    <option name="backtrace" value="FULL" />
+    <option name="backtrace" value="SHORT" />
     <option name="isRedirectInput" value="false" />
     <option name="redirectInputPath" value="" />
     <method v="2">

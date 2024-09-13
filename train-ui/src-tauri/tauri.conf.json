@@ -3,10 +3,10 @@
   "version": "0.1.0",
   "identifier": "com.blendersleuth.train-ute",
   "build": {
-    "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
     "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build"
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../build"
   },
   "app": {
     "windows": [

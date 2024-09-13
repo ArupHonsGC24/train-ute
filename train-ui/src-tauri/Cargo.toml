@@ -1,5 +1,5 @@
 [package]
-name = "train-ute-model"
+name = "train-ui"
 version = "0.1.0"
 description = "Train Ute Model"
 authors = ["Ben Sutherland"]
