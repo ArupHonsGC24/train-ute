@@ -1,6 +1,7 @@
 use rayon::{ThreadPool, ThreadPoolBuildError};
 use rgb::RGB8;
 
+#[allow(dead_code)]
 pub fn create_pool(num_threads: usize) -> Result<ThreadPool, ThreadPoolBuildError> {
     rayon::ThreadPoolBuilder::new()
         .num_threads(num_threads)

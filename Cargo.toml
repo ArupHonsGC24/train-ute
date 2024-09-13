@@ -8,15 +8,15 @@ members = [
 ]
 
 # Compile dependencies as release even in debug mode.
-[profile.dev.package."*"]
-opt-level = 3
+#[profile.dev.package."*"]
+#opt-level = 3
+
+[profile.dev]
+incremental = true # Compile your binary in smaller steps.
 
 [profile.release-with-symbols]
 inherits = "release"
 debug = true
-
-[profile.dev]
-incremental = true # Compile your binary in smaller steps.
 
 [profile.release]
 codegen-units = 1 # Allows LLVM to perform better optimization.

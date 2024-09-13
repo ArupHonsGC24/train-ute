@@ -13,13 +13,14 @@
       {
         "title": "Train Ute Model",
         "minWidth": 1200,
-        "minHeight": 600,
+        "minHeight": 650,
         "resizable": true,
         "fullscreen": false
       }
     ],
     "security": {
-      "csp": null
+      "csp": null,
+      "capabilities": [ "main" ]
     }
   },
   "bundle": {

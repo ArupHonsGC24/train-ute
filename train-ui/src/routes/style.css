@@ -22,6 +22,7 @@ body {
     padding: 15px;
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
+    user-select: none;
 }
 
 input, button, textarea, select {
