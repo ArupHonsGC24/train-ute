@@ -1,9 +1,9 @@
 {
-  "productName": "train-ui",
+  "productName": "Train Ute Model",
   "version": "0.1.0",
-  "identifier": "com.blendersleuth.train-ui",
+  "identifier": "com.blendersleuth.train-ute",
   "build": {
-    "frontendDist": "../build",
+    "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build"
@@ -11,9 +11,9 @@
   "app": {
     "windows": [
       {
-        "title": "train-ui",
-        "width": 800,
-        "height": 600,
+        "title": "Train Ute Model",
+        "minWidth": 1200,
+        "minHeight": 600,
         "resizable": true,
         "fullscreen": false
       }
