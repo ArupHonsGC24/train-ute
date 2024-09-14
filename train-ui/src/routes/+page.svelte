@@ -1,42 +1,52 @@
 <script>
-	import ConfigPanel from '$lib/components/ConfigPanel.svelte';
-	import Visualisation from '$lib/components/Visualisation.svelte';
+  import ConfigPanel from "$lib/components/ConfigPanel.svelte";
+  import Visualisation from "$lib/components/Visualisation.svelte";
 </script>
 
-<h1 id="title">Train Ute Model</h1>
-<div id="panels">
-	<div id="left-panel">
-		<Visualisation />
-	</div>
-	<div id="right-panel">
-		<ConfigPanel />
-	</div>
+<div id="container">
+  <h1>Train Ute Model</h1>
+  <div id="panels">
+    <div id="left-panel">
+      <Visualisation />
+    </div>
+    <div id="right-panel">
+      <ConfigPanel />
+    </div>
+  </div>
 </div>
 
 <style>
-	:root {
-		background-color: #171C23;
-	}
+  :root {
+    background-color: #171c23;
+  }
 
-	#title {
-		text-align: center;
-		color: #EAE0D5;
-		margin: 10px 0;
-		font-size: 2rem;
-	}
+  #container {
+    height: 100vh;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    padding: 15px;
+  }
 
-	#panels {
-		display: flex;
-		height: 100%;
-	}
+  h1 {
+    text-align: center;
+    color: #eae0d5;
+    margin: 10px 0;
+    font-size: 2rem;
+  }
 
-	#left-panel {
-		flex: 3;
-		padding: 20px;
-	}
+  #panels {
+    display: flex;
+    height: 100%;
+  }
 
-	#right-panel {
-		flex: 2;
-		padding: 20px 40px 20px 20px;
-	}
+  #left-panel {
+    flex: 3;
+    padding: 20px;
+  }
+
+  #right-panel {
+    flex: 2;
+    padding: 20px 40px 20px 20px;
+  }
 </style>

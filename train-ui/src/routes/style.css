@@ -1,31 +1,36 @@
 /* Using some values from a modern CSS 'reset': https://www.joshwcomeau.com/css/custom-css-reset/. */
 
-*, *::before, *::after {
-    box-sizing: border-box;
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
 }
 
 :root {
-    font-family: "Inter", "Verdana", sans-serif;
-    font-feature-settings: 'liga' 1, 'calt' 1;
-    color-scheme: dark;
+  font-family: "Inter", "Verdana", sans-serif;
+  font-feature-settings:
+    "liga" 1,
+    "calt" 1;
+  color-scheme: dark;
 }
 
 @supports (font-variation-settings: normal) {
-    :root { font-family: "InterVariable", sans-serif; font-optical-sizing: auto; }
+  :root {
+    font-family: "InterVariable", sans-serif;
+    font-optical-sizing: auto;
+  }
 }
 
 body {
-    margin: 0;
-    width: 100%;
-    height: 100vh;
-    display: flex;
-    flex-direction: column;
-    padding: 15px;
-    line-height: 1.5;
-    -webkit-font-smoothing: antialiased;
-    user-select: none;
+  margin: 0;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
 }
 
-input, button, textarea, select {
-    font: inherit;
+input,
+button,
+textarea,
+select {
+  font: inherit;
 }

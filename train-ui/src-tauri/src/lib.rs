@@ -13,9 +13,9 @@ enum Error {
     MissingHeader(&'static str),
     #[error("Malformed header entry: `{0}`.")]
     MalformedHeaderEntry(&'static str),
-    #[error("IO error: {0}")]
+    #[error("IO error: {0}.")]
     Io(#[from] std::io::Error),
-    #[error("GTFS error: {0}")]
+    #[error("GTFS error: {0}.")]
     Gtfs(#[from] gtfs_structures::Error),
 }
 
@@ -56,7 +56,7 @@ async fn gen_network(request: ipc::Request<'_>, state: State<'_, AppState>) -> R
 
     println!("Received model date: {}", model_date);
 
-    // Load GTFS data. TODO: Why does this take so long?
+    // Load GTFS data. TODO: Why does this take so long? Probably because it was a debug build.
     match GtfsReader::default().raw().read_from_reader(Cursor::new(gtfs_zip)).and_then(Gtfs::try_from) {
         Ok(gtfs) => {
             println!("Successfully loaded GTFS data in {}ms.", gtfs.read_duration);
