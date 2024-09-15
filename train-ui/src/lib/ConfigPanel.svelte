@@ -1,6 +1,9 @@
 <script lang="ts">
-  import Button from "./Button.svelte";
   import { invoke } from "@tauri-apps/api/core";
+  import { createEventDispatcher } from "svelte";
+  import Button from "./Button.svelte";
+
+  let dispatch = createEventDispatcher();
 
   // Binding for the file input property.
   let inputFiles: FileList | null = null;
@@ -16,6 +19,13 @@
 
   let allowedDateRange: DateRange | undefined = undefined;
 
+  async function runWithWaitCursor<T>(func: () => Promise<T>) {
+    document.body.style.cursor = "wait";
+    let result = await func();
+    document.body.style.cursor = "auto";
+    return result;
+  }
+
   // A bit of fancy async/await to handle the file upload.
   async function loadGTFS(event: Event) {
     if (inputFiles && inputFiles.length > 0) {
@@ -23,10 +33,11 @@
       if (file.name.endsWith(".zip")) {
         allowedDateRange = undefined;
 
-        document.body.style.cursor = "wait";
-        let loadedGtfsZip = await file.arrayBuffer();
-        allowedDateRange = await invoke("load_gtfs", loadedGtfsZip);
-        document.body.style.cursor = "auto";
+        allowedDateRange = await runWithWaitCursor(async () => {
+          let loadedGtfsZip = await file.arrayBuffer();
+          return await invoke("load_gtfs", loadedGtfsZip);
+        });
+
         if (allowedDateRange) {
           console.log("Allowed date range:", allowedDateRange);
           dateInput.min = allowedDateRange.min;
@@ -46,6 +57,41 @@
   }
 
   let modelDate = "2024-05-10";
+  let runSimulationDisabled = true;
+  let exportResultsDisabled = true;
+
+  async function generateNetwork() {
+    try {
+      await runWithWaitCursor(async () => {
+        await invoke("gen_network", { modelDate });
+      });
+      runSimulationDisabled = false;
+    } catch (err) {
+      alert(err);
+    }
+  }
+
+  async function runSimulation() {
+    try {
+      await runWithWaitCursor(async () => {
+        await invoke("run_simulation");
+      });
+      exportResultsDisabled = false;
+      dispatch("simulation-finished");
+    } catch (err) {
+      alert(err);
+    }
+  }
+
+  async function exportResults() {
+    try {
+      await runWithWaitCursor(async () => {
+        await invoke("export_results");
+      });
+    } catch (err) {
+      alert(err);
+    }
+  }
 </script>
 
 <div id="cfg-panel">
@@ -59,11 +105,12 @@
       bind:files={inputFiles}
       on:change={loadGTFS}
     />
-   <!--TODO: Add a green signal to indicate the gtfs is loaded.-->
+    <!--TODO: Add a green signal to indicate the gtfs is loaded (and each step's prerequisite).-->
   </div>
 
   <div class="cfg-label">
     <label for="model-date">Date to Model:</label>
+    <!--TODO: Handle case of date being changed when network is already generated. Should invalidate on different date-->
     <input
       type="date"
       id="model-date"
@@ -84,21 +131,30 @@
   <Button
     text="Generate Network"
     class="cfg-style"
-    command="gen_network"
     disabled={allowedDateRange == null}
     disabledTooltip="Load GTFS and select date first."
-    args={{ modelDate }}
+    on:click={generateNetwork}
+  />
+
+  <!--
+    <Button text="Patronage Data Import" class="cfg-style" />
+  -->
+
+  <Button
+    text="Run Simulation"
+    class="cfg-style"
+    disabled={runSimulationDisabled}
+    disabledTooltip="Network must be generated."
+    on:click={runSimulation}
   />
 
   <Button
-    text="Patronage Data Import"
-    command="print_hello"
+    text="Export Results"
     class="cfg-style"
+    disabled={exportResultsDisabled}
+    disabledTooltip="Run simulation first."
+    on:click={exportResults}
   />
-
-  <Button text="Run Simulation" command="run_simulation" class="cfg-style" />
-
-  <Button text="Export Results" command="export" class="cfg-style" />
 </div>
 
 <style>
@@ -138,6 +194,7 @@
   input {
     background-color: #5e503f;
     color: white;
+    cursor: inherit;
   }
 
   input[type="file"] {

@@ -1,6 +1,12 @@
-<script>
+<script lang="ts">
   import ConfigPanel from "$lib/ConfigPanel.svelte";
   import Visualisation from "$lib/Visualisation.svelte";
+
+  let visualisation: Visualisation;
+
+  async function onSimulationFinished() {
+    await visualisation.updateData();
+  }
 </script>
 
 <svelte:head>
@@ -11,10 +17,10 @@
   <h1>Train Ute Model</h1>
   <div id="panels">
     <div id="left-panel">
-      <Visualisation />
+      <Visualisation bind:this={visualisation}/>
     </div>
     <div id="right-panel">
-      <ConfigPanel />
+      <ConfigPanel on:simulation-finished={onSimulationFinished}/>
     </div>
   </div>
 </div>

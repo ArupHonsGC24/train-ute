@@ -1,57 +1,19 @@
-use std::fs;
-use std::time::Instant;
-use std::io::Write;
-use std::path::Path;
 use chrono::NaiveDate;
 use gtfs_structures::GtfsReader;
+use std::fs;
+use std::io::Write;
+use std::path::Path;
+use std::time::Instant;
 
 use raptor::network::Network;
 
-use crate::simulation::{AgentCount, CrowdingCost, PopulationCount, SimulationParams, SimulationResult};
+use crate::simulation::{DefaultSimulationParams, SimulationParams, SimulationResult};
 use crate::utils::create_pool;
 
 mod simulation;
 mod data_import;
 mod data_export;
 mod utils;
-
-// Simulation notes:
-// When we get the O-D data, we can run journey planning for each OD and apply the passenger counts to the relevant trips.
-// once this is run once, we update the journey planning weights based on the crowding and run again.
-// This is like the 'El Farol Bar' problem.
-// Matsim-like replanning for a proportion of the population might also be viable.
-
-pub struct DefaultSimulationParams {
-    pub max_train_capacity: AgentCount,
-}
-
-impl DefaultSimulationParams {
-    pub const fn new(max_train_capacity: AgentCount) -> Self {
-        let result = Self {
-            max_train_capacity,
-        };
-
-        result
-    }
-    fn f(x: CrowdingCost) -> CrowdingCost {
-        const B: CrowdingCost = 5.;
-        let bx = B * x;
-        let ebx = bx.exp();
-        (ebx - 1.) / (B.exp() - 1.)
-    }
-}
-
-impl SimulationParams for DefaultSimulationParams {
-    fn max_train_capacity(&self) -> AgentCount {
-        self.max_train_capacity
-    }
-
-    fn cost_fn(&self, count: PopulationCount) -> CrowdingCost {
-        debug_assert!(count >= 0, "Negative population count");
-        let proportion = count as CrowdingCost / self.max_train_capacity() as CrowdingCost;
-        Self::f(proportion)
-    }
-}
 
 fn user_input(prompt: &str) -> Result<Option<String>, std::io::Error> {
     print!("{prompt}");
@@ -166,8 +128,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             data_export::export_agent_counts(&data_export_folder.join("counts"), &network, &simulation_result).unwrap();
             data_export::export_stops(&data_export_folder.join("stops"), &network).unwrap();
             if network.has_shapes {
-                data_export::export_shape_file(&data_export_folder.join("shapes.bin.zip"), &network).unwrap();
-                data_export::export_network_trips(&data_export_folder.join("trips.bin.zip"), &network, &simulation_result).unwrap();
+                data_export::export_shape_file(&network, data_export::open_zip(&data_export_folder.join("shapes.bin.zip"))?).unwrap();
+                data_export::export_network_trips(&network, &simulation_result, data_export::open_zip(&data_export_folder.join("trips.bin.zip"))?).unwrap();
             } else {
                 println!("Warning: GTFS shapes not loaded, no visualisation export.");
             }

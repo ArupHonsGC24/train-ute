@@ -16,8 +16,60 @@ pub type CrowdingCost = PathfindingCost;
 pub trait SimulationParams {
     fn max_train_capacity(&self) -> AgentCount;
     fn cost_fn(&self, count: PopulationCount) -> CrowdingCost;
+    // Called by the simulation to report progress (0-1).
+    fn progress_callback(&self, percent: f32);
 }
 
+// Simulation notes:
+// When we get the O-D data, we can run journey planning for each OD and apply the passenger counts to the relevant trips.
+// once this is run once, we update the journey planning weights based on the crowding and run again.
+// This is like the 'El Farol Bar' problem.
+// Matsim-like replanning for a proportion of the population might also be viable.
+
+// This default simulation parameter implementation uses a simple exponential crowding cost function, and can report progress.
+pub struct DefaultSimulationParams<C: Fn(f32)> {
+    pub max_train_capacity: AgentCount,
+    progress_callback: Option<C>,
+}
+
+impl<C: Fn(f32)> DefaultSimulationParams<C> {
+    pub const fn new(max_train_capacity: AgentCount) -> Self {
+        let result = Self {
+            max_train_capacity,
+            progress_callback: None,
+        };
+        result
+    }
+    pub const fn new_with_callback(max_train_capacity: AgentCount, progress_callback: C) -> Self {
+        let result = Self {
+            max_train_capacity,
+            progress_callback: Some(progress_callback),
+        };
+        result
+    }
+    fn f(x: CrowdingCost) -> CrowdingCost {
+        const B: CrowdingCost = 5.;
+        let bx = B * x;
+        let ebx = bx.exp();
+        (ebx - 1.) / (B.exp() - 1.)
+    }
+}
+
+impl<C: Fn(f32)> SimulationParams for DefaultSimulationParams<C> {
+    fn max_train_capacity(&self) -> AgentCount {
+        self.max_train_capacity
+    }
+
+    fn cost_fn(&self, count: PopulationCount) -> CrowdingCost {
+        debug_assert!(count >= 0, "Negative population count");
+        let proportion = count as CrowdingCost / self.max_train_capacity() as CrowdingCost;
+        Self::f(proportion)
+    }
+
+    fn progress_callback(&self, percent: f32) {
+        self.progress_callback.as_ref().map(|f| f(percent));
+    }
+}
 pub struct AgentJourney {
     pub start_time: Timestamp,
     pub start_stop: StopIndex,
@@ -36,7 +88,7 @@ pub fn gen_simulation_steps(network: &Network, number: Option<usize>, seed: Opti
         Some(seed) => SmallRng::seed_from_u64(seed),
         None => SmallRng::from_entropy(),
     };
-        
+
     // New agent journey every second.
     let sim_start_time = 4 * 60 * 60; // Start at 4am.
     let sim_end_time = 24 * 60 * 60; // Final journey begins at midnight.
@@ -64,6 +116,8 @@ pub fn run_simulation<T: SimulationParams, const P: bool>(network: &Network, sim
     trip_stops_pop.resize_with(network.stop_times.len(), PopulationCountAtomic::default);
 
     let mut trip_stops_cost = vec![0 as CrowdingCost; network.stop_times.len()];
+    params.progress_callback(0.);
+
     // TODO: test just using map instead of atomics?
     simulation_steps.par_iter().tqdm().for_each(|journey| {
         let query = if false {
@@ -155,8 +209,8 @@ pub fn _simulation_prefix_benchmark<T: SimulationParams>(network: &Network, para
 
         writeln!(&mut output, "{num_steps},{},{},{}", simulation_duration_1.as_micros(), simulation_duration_2.as_micros(), difference)?;
     }
-    
+
     std::fs::write(file, output)?;
-    
+
     Ok(())
 }

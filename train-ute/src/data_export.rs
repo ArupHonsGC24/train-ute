@@ -1,6 +1,5 @@
 use std::fs::File;
 use std::io::Write;
-use std::mem;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -33,25 +32,21 @@ pub enum DataExportError {
     CsvError(#[from] csv::Error),
 }
 
-// Writes a set of binary data to a zip file in a simple format:
+// Writes a set of binary data to a writer in a simple format:
 // - A 32-bit byte offset and length for each data chunk.
 // - The binary data chunks, each aligned to 8 bytes.
-fn write_bin(path: &Path, data_list: &[&[u8]]) -> std::io::Result<()> {
+pub fn write_bin(data_list: &[&[u8]], writer: &mut impl Write) -> std::io::Result<()> {
     // Simple power-of-two alignment.
     fn round_up_to_eight(num: usize) -> usize { (num + 7) & !7 }
 
-    // Open zip file.
-    let mut zip = ZipWriter::new(File::create(path)?);
-    zip.start_file("data.bin", SimpleFileOptions::default())?;
-
     // A 32-bit byte offset and length for each data chunk, followed by the data chunks.
     // We want the data to be aligned to 8 bytes.
-    let header_size = data_list.len() * 2 * mem::size_of::<u32>(); // 2 32-bit values per data chunk.
+    let header_size = data_list.len() * 2 * size_of::<u32>(); // 2 32-bit values per data chunk.
     let mut index = header_size as u32; // Start past header.
     let mut written_bytes = 0;
     for &data in data_list {
-        written_bytes += zip.write(&index.to_le_bytes())?;
-        written_bytes += zip.write(&(data.len() as u32).to_le_bytes())?;
+        written_bytes += writer.write(&index.to_le_bytes())?;
+        written_bytes += writer.write(&(data.len() as u32).to_le_bytes())?;
         index += round_up_to_eight(data.len()) as u32;
     }
 
@@ -60,17 +55,25 @@ fn write_bin(path: &Path, data_list: &[&[u8]]) -> std::io::Result<()> {
 
     // Write data, maintaining 8-byte alignment.
     for &data in data_list {
-        zip.write_all(data)?;
+        writer.write_all(data)?;
         let padding = round_up_to_eight(data.len()) - data.len();
         for _ in 0..padding {
-            zip.write_all(&0u8.to_le_bytes())?;
+            writer.write_all(&0u8.to_le_bytes())?;
         }
     }
 
     Ok(())
 }
 
-pub fn export_shape_file(path: &Path, network: &Network) -> Result<(), DataExportError> {
+// Writes a set of binary data to a zip file.
+pub fn open_zip(path: &Path) -> std::io::Result<ZipWriter<File>> {
+    // Open zip file.
+    let mut zip = ZipWriter::new(File::create(path)?);
+    zip.start_file("data.bin", SimpleFileOptions::default())?;
+    Ok(zip)
+}
+
+pub fn export_shape_file(network: &Network, writer: &mut impl Write) -> Result<(), DataExportError> {
     let mut shape_points = Vec::new();
     let mut shape_start_indices = Vec::new();
     let mut shape_colours = Vec::new();
@@ -94,12 +97,12 @@ pub fn export_shape_file(path: &Path, network: &Network) -> Result<(), DataExpor
         }
     }
 
-    write_bin(path, &[bytemuck::must_cast_slice(&shape_points), bytemuck::must_cast_slice(&shape_start_indices), &shape_colours])?;
+    write_bin(&[bytemuck::must_cast_slice(&shape_points), bytemuck::must_cast_slice(&shape_start_indices), &shape_colours], writer)?;
 
     Ok(())
 }
 
-pub fn export_network_trips(path: &Path, network: &Network, simulation_result: &SimulationResult) -> Result<(), DataExportError> {
+pub fn export_network_trips(network: &Network, simulation_result: &SimulationResult, writer: &mut impl Write) -> Result<(), DataExportError> {
     const NUM_COORDS_PER_POINT: u32 = 3;
 
     // I haven't bothered to calculate capacities, but it's amortised constant to push anyway so there's not really any point.
@@ -225,7 +228,7 @@ pub fn export_network_trips(path: &Path, network: &Network, simulation_result: &
         }
     }
 
-    write_bin(path, &[bytemuck::must_cast_slice(&trip_points), bytemuck::must_cast_slice(&start_indices), bytemuck::must_cast_slice(&trip_times), &trip_colours])?;
+    write_bin(&[bytemuck::must_cast_slice(&trip_points), bytemuck::must_cast_slice(&start_indices), bytemuck::must_cast_slice(&trip_times), &trip_colours], writer)?;
 
     Ok(())
 }
