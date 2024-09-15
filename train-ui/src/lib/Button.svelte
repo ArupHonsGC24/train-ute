@@ -1,8 +1,11 @@
 <script lang="ts">
   import { invoke, type InvokeArgs } from "@tauri-apps/api/core";
+  import { createEventDispatcher } from 'svelte';
+
+  const dispatch = createEventDispatcher<{handleResult: unknown}>();
 
   export let text: string;
-  export let disabled_tooltip = "";
+  export let disabledTooltip = "";
   export let command: string;
   export let args: InvokeArgs | undefined = undefined;
   export let headers: Record<string, string> | undefined = undefined;
@@ -13,11 +16,12 @@
   export { className as class };
 
   // If the button is disabled, we want to show the tooltip.
-  $: title = disabled ? disabled_tooltip : "";
+  $: title = disabled ? disabledTooltip : "";
 
   async function handleClick() {
     console.log(`Invoking ${command} with args: ${args}`);
-    await invoke(`${command}`, args, headers ? { headers } : undefined);
+    let result = await invoke(`${command}`, args, headers ? { headers } : undefined);
+    dispatch("handleResult", result);
   }
 </script>
 
@@ -33,13 +37,11 @@
   button {
     background-color: #a28a6f;
     color: white;
-    cursor: pointer;
   }
 
   button:disabled {
     background-color: #5e503f;
     color: #a28a6f;
-    cursor: not-allowed;
   }
 
   button:hover:enabled {

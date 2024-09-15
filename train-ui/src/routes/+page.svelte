@@ -1,7 +1,11 @@
 <script>
-  import ConfigPanel from "$lib/components/ConfigPanel.svelte";
-  import Visualisation from "$lib/components/Visualisation.svelte";
+  import ConfigPanel from "$lib/ConfigPanel.svelte";
+  import Visualisation from "$lib/Visualisation.svelte";
 </script>
+
+<svelte:head>
+  <title>Train Ute Model</title>
+</svelte:head>
 
 <div id="container">
   <h1>Train Ute Model</h1>
