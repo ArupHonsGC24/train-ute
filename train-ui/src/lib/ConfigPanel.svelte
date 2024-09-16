@@ -136,9 +136,7 @@
     on:click={generateNetwork}
   />
 
-  <!--
-    <Button text="Patronage Data Import" class="cfg-style" />
-  -->
+  <Button text="Patronage Data Import" class="cfg-style" />
 
   <Button
     text="Run Simulation"

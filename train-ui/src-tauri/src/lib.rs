@@ -1,10 +1,11 @@
 use std::io::Cursor;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use chrono::NaiveDate;
 use gtfs_structures::{Gtfs, GtfsReader};
 use raptor::Network;
 use tauri::{ipc, AppHandle, Emitter, State};
+use tauri_plugin_dialog::DialogExt;
 use train_ute::{data_export, simulation};
 
 #[derive(Debug, thiserror::Error)]
@@ -67,7 +68,7 @@ struct AppStateData {
 
 #[derive(Default)]
 struct AppState {
-    data: Mutex<AppStateData>,
+    data: Arc<Mutex<AppStateData>>,
 }
 
 #[tauri::command]
@@ -157,18 +158,28 @@ async fn run_simulation(app: AppHandle, state: State<'_, AppState>) -> Result<()
 }
 
 #[tauri::command]
-fn export_results() {
+fn export_results(app: AppHandle, state: State<'_, AppState>) -> Result<(), Error> {
     println!("export results.");
+    let app_data = Arc::clone(&state.data);
+    app.dialog().file().add_filter("Parquet", &["*.parquet"]).save_file(move |filepath| {
+        // TODO: lots on unwraps in here: handle errors.
+        if let Some(filepath) = filepath {
+            let app_data = app_data.lock().unwrap();
+            data_export::export_agent_counts(filepath.as_path().unwrap(), app_data.network.as_ref().unwrap(), app_data.sim_result.as_ref().unwrap()).unwrap();
+        }
+    });
+    
+    Ok(())
 }
 
 #[tauri::command]
-async fn get_path_data(state: State<'_, AppState>) -> Result<ipc::Response, Error> {
+fn get_path_data(state: State<'_, AppState>) -> Result<ipc::Response, Error> {
     let app_data = state.data.lock()?;
     Ok(ipc::Response::new(app_data.path_data.clone()))
 }
 
 #[tauri::command]
-async fn get_trip_data(state: State<'_, AppState>) -> Result<ipc::Response, Error> {
+fn get_trip_data(state: State<'_, AppState>) -> Result<ipc::Response, Error> {
     let app_data = state.data.lock()?;
     Ok(ipc::Response::new(app_data.trip_data.clone()))
 }
