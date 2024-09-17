@@ -33,7 +33,10 @@
   "type": "module",
   "dependencies": {
     "@tauri-apps/api": "^2.0.0-rc.4",
-    "deck.gl": "^9.0.29",
+    "@deck.gl/core": "^9.0.29",
+    "@deck.gl/layers": "^9.0.29",
+    "@deck.gl/geo-layers": "^9.0.29",
+    "@deck.gl/mapbox": "^9.0.29",
     "mapbox-gl": "^3.6.0"
   }
 }
