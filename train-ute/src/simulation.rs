@@ -27,7 +27,7 @@ pub trait SimulationParams {
 // Matsim-like replanning for a proportion of the population might also be viable.
 
 // This default simulation parameter implementation uses a simple exponential crowding cost function, and can report progress.
-pub struct DefaultSimulationParams<C: Fn(f32)> {
+pub struct DefaultSimulationParams<C: Fn(f32) = fn(f32)> {
     pub max_train_capacity: AgentCount,
     progress_callback: Option<C>,
 }

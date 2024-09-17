@@ -7,7 +7,7 @@ use std::time::Instant;
 
 use raptor::network::Network;
 
-use crate::simulation::{DefaultSimulationParams, SimulationParams, SimulationResult};
+use crate::simulation::{DefaultSimulationParams, SimulationResult};
 use crate::utils::create_pool;
 
 mod simulation;
@@ -74,7 +74,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Set up simulation.
-    let params = DefaultSimulationParams::new(
+    let params: DefaultSimulationParams = DefaultSimulationParams::new(
         // From VicSig: X'Trapolis 3-car has 264 seated, 133 standing. A 6-car has 794 in total.
         // Crush capacity is 1394, but that's a bit mean.
         // https://vicsig.net/suburban/train/X'Trapolis
@@ -128,8 +128,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             data_export::export_agent_counts(&data_export_folder.join("counts"), &network, &simulation_result).unwrap();
             data_export::export_stops(&data_export_folder.join("stops"), &network).unwrap();
             if network.has_shapes {
-                data_export::export_shape_file(&network, data_export::open_zip(&data_export_folder.join("shapes.bin.zip"))?).unwrap();
-                data_export::export_network_trips(&network, &simulation_result, data_export::open_zip(&data_export_folder.join("trips.bin.zip"))?).unwrap();
+                data_export::export_shape_file(&network, &mut data_export::open_zip(&data_export_folder.join("shapes.bin.zip"))?).unwrap();
+                data_export::export_network_trips(&network, &simulation_result, &mut data_export::open_zip(&data_export_folder.join("trips.bin.zip"))?).unwrap();
             } else {
                 println!("Warning: GTFS shapes not loaded, no visualisation export.");
             }
