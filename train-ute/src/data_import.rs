@@ -1,4 +1,4 @@
-use crate::simulation::{AgentCount, AgentJourney};
+use crate::simulation::{AgentCount, SimulationStep};
 use arrow::array::AsArray;
 use arrow::datatypes::{Int32Type, Time64MicrosecondType};
 use chrono::NaiveDate;
@@ -54,7 +54,7 @@ pub enum DataImportError {
 //    }
 //}
 
-pub fn import_patronage_date(reader: impl ChunkReader + 'static, network: &Network) -> Result<Vec<AgentJourney>, DataImportError> {
+pub fn import_patronage_date(reader: impl ChunkReader + 'static, network: &Network) -> Result<Vec<SimulationStep>, DataImportError> {
     let builder = ParquetRecordBatchReaderBuilder::try_new(reader)?;
 
     // Use the arrow row filter to only get records for the date we care about.
@@ -116,7 +116,7 @@ pub fn import_patronage_date(reader: impl ChunkReader + 'static, network: &Netwo
             let departure_time = (departure_times_us.value(i) / 1_000_000 ) as Timestamp;
             let count = num_agents[i] as AgentCount;
 
-            simulation_steps.push(AgentJourney {
+            simulation_steps.push(SimulationStep {
                 departure_time,
                 origin_stop,
                 dest_stop,

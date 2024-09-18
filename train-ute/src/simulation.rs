@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use kdam::{TqdmIterator, TqdmParallelIterator};
 use rand::prelude::*;
-use raptor::network::{PathfindingCost, StopIndex, Timestamp};
+use raptor::network::{GlobalTripIndex, PathfindingCost, StopIndex, Timestamp};
 use raptor::{csa_query, raptor_query, Network};
 use rayon::prelude::*;
 
@@ -33,17 +33,10 @@ pub struct DefaultSimulationParams<C: Fn(f32) = fn(f32)> {
 }
 
 impl<C: Fn(f32)> DefaultSimulationParams<C> {
-    pub const fn new(max_train_capacity: AgentCount) -> Self {
+    pub const fn new(max_train_capacity: AgentCount, progress_callback: Option<C>) -> Self {
         let result = Self {
             max_train_capacity,
-            progress_callback: None,
-        };
-        result
-    }
-    pub const fn new_with_callback(max_train_capacity: AgentCount, progress_callback: C) -> Self {
-        let result = Self {
-            max_train_capacity,
-            progress_callback: Some(progress_callback),
+            progress_callback,
         };
         result
     }
@@ -70,18 +63,31 @@ impl<C: Fn(f32)> SimulationParams for DefaultSimulationParams<C> {
         self.progress_callback.as_ref().map(|f| f(percent));
     }
 }
-pub struct AgentJourney {
+pub struct SimulationStep {
     pub departure_time: Timestamp,
     pub origin_stop: StopIndex,
     pub dest_stop: StopIndex,
     pub count: AgentCount,
 }
 
-pub struct SimulationResult {
-    pub agent_journeys: Vec<PopulationCount>,
+pub struct AgentJourney {
+    pub agent_id: u32,
+    pub origin_stop: StopIndex,
+    pub origin_trip: GlobalTripIndex,
+    pub dest_stop: StopIndex,
+    pub dest_trip: GlobalTripIndex,
+    pub count: AgentCount,
+    pub duration: Timestamp,
+    pub crowding_cost: CrowdingCost,
+    pub num_transfers: u8,
 }
 
-pub fn gen_simulation_steps(network: &Network, number: Option<usize>, seed: Option<u64>) -> Vec<AgentJourney> {
+pub struct SimulationResult {
+    pub population_count: Vec<PopulationCount>,
+    pub agent_journeys: Vec<AgentJourney>,
+}
+
+pub fn gen_simulation_steps(network: &Network, number: Option<usize>, seed: Option<u64>) -> Vec<SimulationStep> {
     let mut simulation_steps = Vec::new();
     let num_stops = network.num_stops() as StopIndex;
     let mut rng = match seed {
@@ -97,7 +103,7 @@ pub fn gen_simulation_steps(network: &Network, number: Option<usize>, seed: Opti
     let interval = sim_length as f64 / number as f64;
     for i in 0..number {
         let start_time = sim_start_time + (i as f64 * interval) as Timestamp;
-        simulation_steps.push(AgentJourney {
+        simulation_steps.push(SimulationStep {
             departure_time: start_time,
             origin_stop: rng.gen_range(0..num_stops),
             dest_stop: rng.gen_range(0..num_stops),
@@ -108,7 +114,7 @@ pub fn gen_simulation_steps(network: &Network, number: Option<usize>, seed: Opti
 }
 
 // Const generic parameter P switched between normal (false) and prefix-sum (true) simulation.
-pub fn run_simulation<T: SimulationParams, const P: bool>(network: &Network, simulation_steps: &[AgentJourney], params: &T) -> SimulationResult {
+pub fn run_simulation<T: SimulationParams, const P: bool>(network: &Network, simulation_steps: &[SimulationStep], params: &T) -> SimulationResult {
     // Agent counts need to be stored per trip stop, and signed so they can be temporarily negative.
 
     // Initialise agent counts to zero. To allow parallelism, we use an atomic type.
@@ -118,20 +124,39 @@ pub fn run_simulation<T: SimulationParams, const P: bool>(network: &Network, sim
     let mut trip_stops_cost = vec![0 as CrowdingCost; network.stop_times.len()];
     params.progress_callback(0.);
 
-    // TODO: test just using map instead of atomics?
-    simulation_steps.par_iter().tqdm().for_each(|journey| {
-        let query = if false {
-            csa_query(network, journey.origin_stop, journey.departure_time, journey.dest_stop)
+    let agent_journeys = simulation_steps.par_iter().tqdm().enumerate().map(|(i, sim_step)| {
+        if sim_step.count == 0 {
+            return None;
+        }
+
+        let journey = if false {
+            csa_query(network, sim_step.origin_stop, sim_step.departure_time, sim_step.dest_stop)
             //mc_csa_query(network, journey.start_stop, journey.start_time, journey.end_stop, &trip_stops_cost)
         } else {
-            raptor_query(network, journey.origin_stop, journey.departure_time, journey.dest_stop)
+            raptor_query(network, sim_step.origin_stop, sim_step.departure_time, sim_step.dest_stop)
             //mc_raptor_query(network, journey.start_stop, journey.start_time, journey.end_stop, &trip_stops_cost)
         };
 
-        for leg in query.legs {
-            let route = &network.routes[leg.route_idx as usize];
-            let trip = &trip_stops_pop[route.get_trip_range(leg.trip_order as usize)];
-            let count = journey.count as PopulationCount;
+        if journey.legs.is_empty() {
+            return None;
+        }
+
+        let mut origin_trip = None;
+        let mut dest_trip = None;
+
+        for (i, leg) in journey.legs.iter().enumerate() {
+            // TODO: allow looking up by GlobalTripIndex.
+            let route = &network.routes[leg.trip.route_idx as usize];
+            let trip = &trip_stops_pop[route.get_trip_range(leg.trip.trip_order as usize)];
+
+            if i == 0 {
+                origin_trip = Some(leg.trip);
+            }
+            if i == journey.legs.len() - 1 {
+                dest_trip = Some(leg.trip);
+            }
+
+            let count = sim_step.count as PopulationCount;
             let boarded_stop_order = leg.boarded_stop_order as usize;
             let arrival_stop_order = leg.arrival_stop_order as usize;
             if P {
@@ -147,7 +172,22 @@ pub fn run_simulation<T: SimulationParams, const P: bool>(network: &Network, sim
                 }
             }
         }
-    });
+
+        let origin_trip = origin_trip.unwrap();
+        let dest_trip = dest_trip.unwrap_or(origin_trip);
+
+        Some(AgentJourney {
+            agent_id: i as u32,
+            origin_stop: sim_step.origin_stop,
+            origin_trip,
+            dest_stop: sim_step.dest_stop,
+            dest_trip,
+            count: sim_step.count,
+            duration: journey.duration,
+            crowding_cost: 0.,
+            num_transfers: (journey.legs.len() - 1) as u8,
+        })
+    }).filter_map(std::convert::identity).collect::<Vec<_>>();
 
     // Copy counts from Vec<PopulationCountAtomic> to Vec<PopulationCount>.
     let mut trip_stops_pop = trip_stops_pop.iter().map(|x| x.load(Ordering::SeqCst)).collect::<Vec<PopulationCount>>();
@@ -173,7 +213,8 @@ pub fn run_simulation<T: SimulationParams, const P: bool>(network: &Network, sim
     }
 
     SimulationResult {
-        agent_journeys: trip_stops_pop,
+        population_count: trip_stops_pop,
+        agent_journeys,
     }
 }
 
@@ -187,7 +228,7 @@ pub fn _simulation_prefix_benchmark<T: SimulationParams>(network: &Network, para
         let simulation_steps = gen_simulation_steps(&network, Some(num_steps), Some(0));
 
         let simulation_start = Instant::now();
-        let mut simulation_result_1 = SimulationResult { agent_journeys: Vec::new() };
+        let mut simulation_result_1 = SimulationResult { population_count: Vec::new(), agent_journeys: Vec::new() };
         for _ in (0..5).tqdm() {
             simulation_result_1 = run_simulation::<_, true>(&network, &simulation_steps, params);
         }
@@ -196,7 +237,7 @@ pub fn _simulation_prefix_benchmark<T: SimulationParams>(network: &Network, para
         //println!("Simulation duration with prefix sum: {:?} to run {} steps", simulation_duration_1, simulation_steps.len());
 
         let simulation_start = Instant::now();
-        let mut simulation_result_2 = SimulationResult { agent_journeys: Vec::new() };
+        let mut simulation_result_2 = SimulationResult { population_count: Vec::new(), agent_journeys: Vec::new() };
         for _ in (0..5).tqdm() {
             simulation_result_2 = run_simulation::<_, false>(&network, &simulation_steps, params);
         }
@@ -205,7 +246,7 @@ pub fn _simulation_prefix_benchmark<T: SimulationParams>(network: &Network, para
         let difference = (simulation_duration_1.as_nanos() as f64 / simulation_duration_2.as_nanos() as f64 - 1.) * 100.;
         //println!("% difference: {}", difference);
 
-        assert_eq!(simulation_result_1.agent_journeys, simulation_result_2.agent_journeys);
+        assert_eq!(simulation_result_1.population_count, simulation_result_2.population_count);
 
         writeln!(&mut output, "{num_steps},{},{},{}", simulation_duration_1.as_micros(), simulation_duration_2.as_micros(), difference)?;
     }

@@ -1,6 +1,7 @@
 use chrono::NaiveDate;
 use gtfs_structures::GtfsReader;
 use std::fs;
+use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 use std::time::Instant;
@@ -79,6 +80,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Crush capacity is 1394, but that's a bit mean.
         // https://vicsig.net/suburban/train/X'Trapolis
         794,
+        None,
     );
 
     loop {
@@ -97,7 +99,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let num_agents = num_agents.trim().parse().unwrap();
             let simulation_steps = simulation::gen_simulation_steps(&network, Some(num_agents), Some(0));
 
-            let mut simulation_result = SimulationResult { agent_journeys: Vec::new() };
+            let mut simulation_result = SimulationResult { population_count: Vec::new(), agent_journeys: Vec::new() };
             let simulation_start = Instant::now();
             let num_iterations = 1;
             for _ in 0..num_iterations {
@@ -126,7 +128,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let export_start = Instant::now();
             fs::create_dir_all(data_export_folder)?;
             data_export::export_agent_counts(&data_export_folder.join("counts"), &network, &simulation_result).unwrap();
-            data_export::export_stops(&data_export_folder.join("stops"), &network).unwrap();
+            data_export::export_stops_csv(&data_export_folder.join("stops"), &network).unwrap();
+            data_export::export_agent_journeys(File::create(&data_export_folder.join("journeys.parquet"))?, &network, &simulation_result).unwrap();
             if network.has_shapes {
                 data_export::export_shape_file(&network, &mut data_export::open_zip(&data_export_folder.join("shapes.bin.zip"))?).unwrap();
                 data_export::export_network_trips(&network, &simulation_result, &mut data_export::open_zip(&data_export_folder.join("trips.bin.zip"))?).unwrap();

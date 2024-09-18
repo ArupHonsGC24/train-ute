@@ -3,6 +3,7 @@ use gtfs_structures::{Gtfs, GtfsReader};
 use raptor::Network;
 use std::fs::File;
 use std::io::Cursor;
+use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::{ipc, AppHandle, Emitter, State};
 use tauri_plugin_dialog::{DialogExt, FilePath};
@@ -20,6 +21,8 @@ enum CmdError {
     PrerequisiteUnsatisfied(&'static str),
     #[error("Path conversion error: {0}.")]
     PathConversion(FilePath),
+    #[error("Invalid filename in filepath: {0}.")]
+    InvalidFilename(PathBuf),
     #[error("Mutex poisoned.")]
     MutexPoisoned,
     #[error("IO error: {0}.")]
@@ -67,7 +70,7 @@ struct LoadedGtfs {
 struct AppStateData {
     loaded_gtfs: Option<LoadedGtfs>,
     network: Option<Network>,
-    sim_steps: Option<Vec<simulation::AgentJourney>>,
+    sim_steps: Option<Vec<simulation::SimulationStep>>,
     sim_result: Option<simulation::SimulationResult>,
     path_data: Vec<u8>,
     trip_data: Vec<u8>,
@@ -80,7 +83,7 @@ impl AppStateData {
     pub fn get_network(&self) -> CmdResult<&Network> {
         self.network.as_ref().ok_or(CmdError::PrerequisiteUnsatisfied("Network must be generated first."))
     }
-    pub fn get_sim_steps(&self) -> CmdResult<&Vec<simulation::AgentJourney>> {
+    pub fn get_sim_steps(&self) -> CmdResult<&Vec<simulation::SimulationStep>> {
         self.sim_steps.as_ref().ok_or(CmdError::PrerequisiteUnsatisfied("Patronage data must be imported first."))
     }
     pub fn get_sim_result(&self) -> CmdResult<&simulation::SimulationResult> {
@@ -162,9 +165,9 @@ async fn patronage_data_import(app: AppHandle, state: State<'_, AppState>) -> Cm
     // app_data.sim_steps = Some(simulation::gen_simulation_steps(&network, Some(num_agents), Some(0)));
 
     let Some(filepath) = app.dialog()
-        .file()
-        .add_filter("Parquet", PARQUET_FILTER)
-        .blocking_pick_file() else {
+                            .file()
+                            .add_filter("Parquet", PARQUET_FILTER)
+                            .blocking_pick_file() else {
         // User cancelled.
         return Ok(());
     };
@@ -184,9 +187,9 @@ async fn run_simulation(app: AppHandle, state: State<'_, AppState>) -> CmdResult
     let network = app_data.get_network()?;
     let simulation_steps = app_data.get_sim_steps()?;
 
-    let params = simulation::DefaultSimulationParams::new_with_callback(794, |progress| {
+    let params = simulation::DefaultSimulationParams::new(794, Some(|progress| {
         app.emit("simulation-progress", progress).unwrap();
-    });
+    }));
 
     let sim_result = Some(simulation::run_simulation::<_, true>(network, &simulation_steps, &params));
 
@@ -207,16 +210,36 @@ async fn export_results(app: AppHandle, state: State<'_, AppState>) -> CmdResult
     let network = app_data.get_network()?;
     let sim_result = app_data.get_sim_result()?;
 
+    // TODO: Separate dialogs for each export type?
     let Some(filepath) = app.dialog()
-        .file()
-        .add_filter("Parquet", PARQUET_FILTER)
-        .blocking_save_file() else {
+                            .file()
+                            .set_file_name("result")
+                            .add_filter("Parquet", PARQUET_FILTER)
+                            .blocking_save_file() else {
         // User cancelled.
         return Ok(());
     };
 
+    // TODO: format with rustfmt.
     let filepath = filepath.as_path().ok_or(CmdError::PathConversion(filepath.clone()))?;
-    data_export::export_agent_counts(filepath, network, sim_result)?;
+    let filename = filepath.file_stem()
+                           .ok_or(CmdError::InvalidFilename(filepath.to_owned()))?
+        .to_str()
+        .ok_or(CmdError::InvalidFilename(filepath.to_owned()))?;
+
+    println!("{filename}");
+    println!("{}", filepath.with_file_name(format!("{filename}_counts")).display());
+
+    println!("Exporting agent counts to: {}", filepath.with_file_name(format!("{filename}_counts")).display());
+    data_export::export_agent_counts(&filepath.with_file_name(format!("{filename}_counts")), network, sim_result)?;
+
+    println!("Exporting agent journeys to: {}", filepath.with_file_name(format!("{filename}_journeys")).display());
+    data_export::export_agent_journeys(
+        File::create(
+            filepath.with_file_name(&format!("{filename}_journeys")).with_extension("parquet")
+        )?,
+        network,
+        sim_result)?;
 
     Ok(())
 }

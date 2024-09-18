@@ -3,9 +3,10 @@ use std::io::Write;
 use std::path::Path;
 use std::sync::Arc;
 
-use arrow::array::{Array, StringArray, TimestampMillisecondArray, UInt32Array};
+use arrow::array::{Array, Float32Array, StringArray, Time32MillisecondArray, TimestampMillisecondArray, UInt32Array};
 use arrow::datatypes::{Field, Schema};
-use itertools::{Itertools, izip};
+use itertools::{izip, Itertools};
+use parquet::arrow::ArrowWriter;
 use parquet::basic::Compression;
 use parquet::file::properties::WriterProperties;
 use rgb::RGB8;
@@ -13,9 +14,9 @@ use thiserror::Error;
 use zip::write::SimpleFileOptions;
 use zip::ZipWriter;
 
-use raptor::Network;
 use raptor::network::{CoordType, NetworkPoint, Timestamp};
 use raptor::utils::get_time_str;
+use raptor::Network;
 
 use crate::simulation::SimulationResult;
 use crate::utils::{mix_rgb, quadratic_ease_in_out, quadratic_inv_ease_in_out};
@@ -124,7 +125,7 @@ pub fn export_network_trips(network: &Network, simulation_result: &SimulationRes
         for trip_idx in 0..network.num_trips(route_idx) {
             start_indices.push(trip_points.len() as u32 / NUM_COORDS_PER_POINT);
 
-            let agent_counts = &simulation_result.agent_journeys[route.get_trip_range(trip_idx)];
+            let agent_counts = &simulation_result.population_count[route.get_trip_range(trip_idx)];
 
             let mut shape_idx = 0;
             for dep_stop_order in 0..num_stops - 1 {
@@ -138,7 +139,7 @@ pub fn export_network_trips(network: &Network, simulation_result: &SimulationRes
 
                 // Calculate alpha based on agent count.
                 let dep_count = agent_counts[dep_stop_order];
-                
+
                 // Ignore trips with no agents.
                 assert!(dep_count >= 0);
                 if dep_count == 0 {
@@ -147,7 +148,7 @@ pub fn export_network_trips(network: &Network, simulation_result: &SimulationRes
                 let dep_count = dep_count as f32;
                 let arr_count = agent_counts[arr_stop_order] as f32;
                 let agent_count_diff = arr_count - dep_count;
-                
+
                 const MAX_AGENT_COUNT: f32 = 50.;
 
                 let mut push_point = |point: NetworkPoint, next_point: NetworkPoint| {
@@ -185,14 +186,14 @@ pub fn export_network_trips(network: &Network, simulation_result: &SimulationRes
                 } else {
                     push_point(arr_point, arr_point);
                 }
-                
+
                 // Calculate time based on distance proportion.
                 let section_duration = arrival_time - departure_time;
                 let mut distance = 0.;
                 for shape_idx in start_shape_idx..shape_idx {
                     assert!(distance >= 0.);
                     assert!(distance_along_shape_section > 0.);
-                    
+
                     // Calculate proportion along this shape we are, for interpolating properties.
                     // Apply an easing function to the proportion, so trains accelerate and decelerate.
                     // We use the inverse of the easing function for easing time.
@@ -235,6 +236,8 @@ pub fn export_network_trips(network: &Network, simulation_result: &SimulationRes
 
 // Exports the agent counts to a parquet (and csv) file.
 pub fn export_agent_counts(path: &Path, network: &Network, simulation_result: &SimulationResult) -> Result<(), DataExportError> {
+    let path = path.with_extension("parquet");
+
     // This is the utc timestamp for the midnight of the day the network represents.
     let date_timestamp = network.date.and_time(chrono::NaiveTime::MIN).and_utc().timestamp();
 
@@ -251,15 +254,15 @@ pub fn export_agent_counts(path: &Path, network: &Network, simulation_result: &S
             let trip_id = route.trip_ids[trip].as_ref();
             let trip_range = route.get_trip_range(trip);
 
-            let stop_times = network.stop_times[trip_range.clone()].iter().map(|stop_time|{
+            let stop_times_ms = network.stop_times[trip_range.clone()].iter().map(|stop_time| {
                 (date_timestamp + stop_time.departure_time as i64) * 1000 // Convert to milliseconds, as seconds is not as widely supported.
             });
             let stops = route.get_stops(&network.route_stops).iter().tuple_windows();
-            let trip_agent_counts = &simulation_result.agent_journeys[trip_range.clone()];
+            let trip_agent_counts = &simulation_result.population_count[trip_range.clone()];
 
-            for ((&dep_stop_idx, &arr_stop_idx), time, &agent_count) in izip!(stops, stop_times, trip_agent_counts) {
+            for ((&dep_stop_idx, &arr_stop_idx), time_ms, &agent_count) in izip!(stops, stop_times_ms, trip_agent_counts) {
                 trip_ids.push(trip_id);
-                timestamps.push(time);
+                timestamps.push(time_ms);
                 departures.push(network.stops[dep_stop_idx as usize].name.as_ref());
                 departure_ids.push(network.stops[dep_stop_idx as usize].id.as_ref());
                 arrivals.push(network.stops[arr_stop_idx as usize].name.as_ref());
@@ -271,7 +274,6 @@ pub fn export_agent_counts(path: &Path, network: &Network, simulation_result: &S
     }
 
     // Set up arrow arrays.
-
     let trip_id_arr = Arc::new(StringArray::from(trip_ids.clone()));
     let trip_id_field = Field::new("trip_name", trip_id_arr.data_type().clone(), false);
 
@@ -286,7 +288,7 @@ pub fn export_agent_counts(path: &Path, network: &Network, simulation_result: &S
 
     let arrivals_arr = Arc::new(StringArray::from(arrivals.clone()));
     let arrivals_field = Field::new("arrival", arrivals_arr.data_type().clone(), false);
-    
+
     let arrival_ids_arr = Arc::new(StringArray::from(arrival_ids.clone()));
     let arrival_ids_field = Field::new("arrival_id", arrival_ids_arr.data_type().clone(), false);
 
@@ -302,28 +304,28 @@ pub fn export_agent_counts(path: &Path, network: &Network, simulation_result: &S
         let props = WriterProperties::builder()
             .set_compression(Compression::SNAPPY)
             .build();
-        let mut writer = parquet::arrow::ArrowWriter::try_new(File::create(path.with_extension("parquet"))?, record_batch.schema(), Some(props))?;
+        let mut writer = ArrowWriter::try_new(File::create(&path)?, record_batch.schema(), Some(props))?;
 
         writer.write(&record_batch)?;
 
         writer.close()?;
     }
-    
+
     // Write to csv (for debugging).
     {
         let mut csv_writer = csv::Writer::from_path(path.with_extension("csv"))?;
         csv_writer.write_record(&["trip_id", "timestamp", "departure", "departure_id", "arrival", "arrival_id", "count"])?;
         let date_str = network.date.to_string();
         for (trip_name, timestamp, departure, departure_id, arrival, arrival_id, count) in izip!(trip_ids, timestamps, departures, departure_ids, arrivals, arrival_ids, agent_counts) {
-            let timestamp = format!("{date_str} {}", &get_time_str((timestamp/1000 - date_timestamp) as Timestamp));
+            let timestamp = format!("{date_str} {}", &get_time_str((timestamp / 1000 - date_timestamp) as Timestamp));
             csv_writer.write_record(&[trip_name, &timestamp, departure, departure_id, arrival, arrival_id, &count.to_string()])?;
         }
     }
-    
+
     Ok(())
 }
 
-pub fn export_stops(path: &Path, network: &Network) -> Result<(), DataExportError> {
+pub fn export_stops_csv(path: &Path, network: &Network) -> Result<(), DataExportError> {
     // Write stops CSV.
     let csv_path = path.with_extension("csv");
     let mut csv_writer = csv::Writer::from_path(csv_path)?;
@@ -331,6 +333,107 @@ pub fn export_stops(path: &Path, network: &Network) -> Result<(), DataExportErro
     csv_writer.write_record(&["id", "name", "latitude", "longitude"])?;
     for (location, stop) in network.stops.iter().enumerate().map(|(i, stop)| (network.stop_points[i], stop)) {
         csv_writer.write_record(&[&stop.id.to_string(), &stop.name.to_string(), &location.latitude.to_string(), &location.longitude.to_string()])?;
+    }
+
+    Ok(())
+}
+
+pub fn export_agent_journeys(writer: impl Write + Send, network: &Network, simulation_result: &SimulationResult) -> Result<(), DataExportError> {
+    let num_agents = simulation_result.agent_journeys.len();
+
+    let mut agent_ids = Vec::with_capacity(num_agents);
+    let mut journey_types = Vec::with_capacity(num_agents);
+
+    let mut departures = Vec::with_capacity(num_agents);
+    let mut departure_trip_ids = Vec::with_capacity(num_agents);
+    let mut arrivals = Vec::with_capacity(num_agents);
+    let mut arrival_trip_ids = Vec::with_capacity(num_agents);
+
+    let mut journey_times_ms = Vec::with_capacity(num_agents);
+    let mut crowding_costs = Vec::with_capacity(num_agents);
+    let mut num_transfers = Vec::with_capacity(num_agents);
+
+    for journey in &simulation_result.agent_journeys {
+        agent_ids.push(journey.agent_id);
+        journey_types.push("Optimal");
+        //journey_types.push("Actual");
+
+        departures.push(network.stops[journey.origin_stop as usize].name.as_ref());
+        departure_trip_ids.push(network.routes[journey.origin_trip.route_idx as usize].trip_ids[journey.origin_trip.trip_order as usize].as_ref());
+
+        arrivals.push(network.stops[journey.dest_stop as usize].name.as_ref());
+        arrival_trip_ids.push(network.routes[journey.dest_trip.route_idx as usize].trip_ids[journey.dest_trip.trip_order as usize].as_ref());
+
+        journey_times_ms.push(journey.duration as i32 * 1000); // Convert to milliseconds because the Time32Second type is not as widely supported.
+        crowding_costs.push(journey.crowding_cost);
+        num_transfers.push(journey.num_transfers as u32);
+    }
+
+    // Set up arrow arrays.
+
+    let agent_ids_arr = Arc::new(UInt32Array::from(agent_ids.clone()));
+    let agent_ids_field = Field::new("agent_id", agent_ids_arr.data_type().clone(), false);
+
+    let journey_type_arr = Arc::new(StringArray::from(journey_types.clone()));
+    let journey_type_field = Field::new("journey_type", journey_type_arr.data_type().clone(), false);
+
+    let departures_arr = Arc::new(StringArray::from(departures.clone()));
+    let departures_field = Field::new("departure", departures_arr.data_type().clone(), false);
+
+    let departure_trip_ids_arr = Arc::new(StringArray::from(departure_trip_ids.clone()));
+    let departure_trip_ids_field = Field::new("departure_trip_id", departure_trip_ids_arr.data_type().clone(), false);
+
+    let arrivals_arr = Arc::new(StringArray::from(arrivals.clone()));
+    let arrivals_field = Field::new("arrival", arrivals_arr.data_type().clone(), false);
+
+    let arrival_trip_ids_arr = Arc::new(StringArray::from(arrival_trip_ids.clone()));
+    let arrival_trip_ids_field = Field::new("arrival_trip_id", arrival_trip_ids_arr.data_type().clone(), false);
+
+    let journey_durations_arr = Arc::new(Time32MillisecondArray::from(journey_times_ms.clone()));
+    let journey_durations_field = Field::new("journey_duration", journey_durations_arr.data_type().clone(), false);
+
+    let crowding_costs_arr = Arc::new(Float32Array::from(crowding_costs.clone()));
+    let crowding_costs_field = Field::new("crowding_cost", crowding_costs_arr.data_type().clone(), false);
+
+    let num_transfers_arr = Arc::new(UInt32Array::from(num_transfers.clone()));
+    let num_transfers_field = Field::new("num_transfers", num_transfers_arr.data_type().clone(), false);
+
+    let schema = Arc::new(Schema::new(vec![
+        agent_ids_field,
+        journey_type_field,
+        departures_field,
+        departure_trip_ids_field,
+        arrivals_field,
+        arrival_trip_ids_field,
+        journey_durations_field,
+        crowding_costs_field,
+        num_transfers_field,
+    ]));
+
+    let record_batch = arrow::record_batch::RecordBatch::try_new(schema, vec![
+        agent_ids_arr,
+        journey_type_arr,
+        departures_arr,
+        departure_trip_ids_arr,
+        arrivals_arr,
+        arrival_trip_ids_arr,
+        journey_durations_arr,
+        crowding_costs_arr,
+        num_transfers_arr,
+    ])?;
+
+    // Write to parquet.
+    {
+        let props = WriterProperties::builder()
+            .set_compression(Compression::SNAPPY)
+            // Because this is a string column with only two possible values, dictionary encoding is useful.
+            .set_column_dictionary_enabled("journey_type".into(), true) // TODO: compare with false.
+            .build();
+        let mut writer = ArrowWriter::try_new(writer, record_batch.schema(), Some(props))?;
+
+        writer.write(&record_batch)?;
+
+        writer.close()?;
     }
 
     Ok(())
