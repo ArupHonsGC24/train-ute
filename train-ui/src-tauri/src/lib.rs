@@ -1,17 +1,12 @@
-use arrow::array::AsArray;
-use chrono::{NaiveDate, NaiveTime, Timelike};
+use chrono::NaiveDate;
 use gtfs_structures::{Gtfs, GtfsReader};
-use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use raptor::Network;
-use std::collections::HashMap;
 use std::fs::File;
 use std::io::Cursor;
 use std::sync::Mutex;
-use arrow::datatypes::Float64Type;
 use tauri::{ipc, AppHandle, Emitter, State};
 use tauri_plugin_dialog::{DialogExt, FilePath};
-use raptor::network::StopIndex;
-use train_ute::{data_export, simulation};
+use train_ute::{data_export, data_import, simulation};
 
 #[derive(Debug, thiserror::Error)]
 enum CmdError {
@@ -33,10 +28,8 @@ enum CmdError {
     Gtfs(#[from] gtfs_structures::Error),
     #[error("Tauri error: {0}.")]
     Tauri(#[from] tauri::Error),
-    #[error("Arrow error: {0}.")]
-    Arrow(#[from] arrow::error::ArrowError),
-    #[error("Parquet error: {0}.")]
-    Parquet(#[from] parquet::errors::ParquetError),
+    #[error("Data import error: {0}.")]
+    DataImport(#[from] data_import::DataImportError),
     #[error("Data export error: {0}.")]
     DataExport(#[from] data_export::DataExportError),
 }
@@ -179,69 +172,9 @@ async fn patronage_data_import(app: AppHandle, state: State<'_, AppState>) -> Cm
 
     let datafile = File::open(filepath)?;
 
-    let builder = ParquetRecordBatchReaderBuilder::try_new(datafile)?;
+    app_data.sim_steps = Some(data_import::import_patronage_date(datafile, network)?);
 
-    // Use the arrow row filter to only get records for the date we care about.
-    //let row_filter = RowFilter::new(vec![Box::new(DateFilterPredicate::new(network.date, builder.parquet_schema()))]);
-    //let builder = builder.with_row_filter(row_filter);
-
-    let reader = builder.build()?;
-
-    // Hashmap used to cache stop indices.
-    let mut station_name_map = HashMap::new();
-    let mut get_stop_idx_from_name = |network: &Network, station_name: &str| -> Option<StopIndex> {
-        if let Some(stop_idx) = station_name_map.get(station_name) {
-            Some(*stop_idx)
-        } else {
-            let stop_idx = network.get_stop_idx_from_name(&station_name)?;
-            station_name_map.insert(station_name.to_string(), stop_idx);
-            Some(stop_idx)
-        }
-    };
-
-    let mut simulation_steps = Vec::new();
-    for batch in reader {
-        // We want to know if the reader returns an error.
-        let batch = batch?;
-
-        let origin = batch.column_by_name("Origin_Station").unwrap().as_string::<i32>();
-        let destination = batch.column_by_name("Destination_Station").unwrap().as_string::<i32>();
-        let departure_time_str = batch.column_by_name("interval_start").unwrap().as_string::<i32>();
-        let num_agents = batch.column_by_name("people").unwrap().as_primitive::<Float64Type>().values();
-
-        for i in 0..batch.num_rows() {
-            let origin_name = origin.value(i);
-            let Some(origin_stop) = get_stop_idx_from_name(&network, origin_name) else {
-                // TODO: alert user.
-                eprintln!("Station not found: {origin_name}");
-                continue;
-            };
-            let dest_name = destination.value(i);
-            let Some(dest_stop) = get_stop_idx_from_name(&network, dest_name) else {
-                // TODO: alert user.
-                eprintln!("Station not found: {dest_name}");
-                continue;
-            };
-
-            // TODO: Parse time in seconds in data processing step.
-            let departure_time = NaiveTime::parse_from_str(departure_time_str.value(i), "%H:%M").unwrap().num_seconds_from_midnight();
-            let count = num_agents[i] as simulation::AgentCount;
-
-            simulation_steps.push(simulation::AgentJourney {
-                departure_time,
-                origin_stop,
-                dest_stop,
-                count,
-            });
-        }
-    }
-
-    if simulation_steps.len() == 0 {
-        Err(CmdError::PrerequisiteUnsatisfied("No simulation steps generated from data."))
-    } else {
-        app_data.sim_steps = Some(simulation_steps);
-        Ok(())
-    }
+    Ok(())
 }
 
 #[tauri::command]

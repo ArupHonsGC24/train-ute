@@ -1,30 +1,31 @@
-//use std::collections::HashMap;
-//use std::fs::File;
-//
-//use arrow::array::{Array, AsArray, BooleanArray, Date32Array, RecordBatch};
-//use arrow::datatypes::{ArrowPrimitiveType, Date32Type, Time64MicrosecondType, UInt16Type};
-//use arrow::temporal_conversions::MICROSECONDS;
-//use chrono::NaiveDate;
-//use parquet::arrow::arrow_reader::{ArrowPredicate, ParquetRecordBatchReaderBuilder, RowFilter};
-//use parquet::arrow::ProjectionMask;
-//use parquet::schema::types::SchemaDescriptor;
-//use thiserror::Error;
-//
-//#[derive(Error, Debug)]
-//pub enum DataImportError {
-//    #[error("IO error: {0}")]
-//    Io(#[from] std::io::Error),
-//    #[error("Parquet error: {0}")]
-//    Parquet(#[from] parquet::errors::ParquetError),
-//    #[error("Arrow error: {0}")]
-//    Arrow(#[from] arrow::error::ArrowError),
-//    #[error("No data for date {0}")]
-//    NoDataForDate(NaiveDate),
-//}
-//
-//type Date32TypeNative = <Date32Type as ArrowPrimitiveType>::Native;
+use crate::simulation::{AgentCount, AgentJourney};
+use arrow::array::AsArray;
+use arrow::datatypes::{Int32Type, Time64MicrosecondType};
+use chrono::NaiveDate;
+use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+use parquet::file::reader::ChunkReader;
+use raptor::network::{StopIndex, Timestamp};
+use raptor::Network;
+use std::collections::HashMap;
+use thiserror::Error;
 
-// Predicate for filtering records based on a specific date.
+#[derive(Error, Debug)]
+pub enum DataImportError {
+    #[error("Parquet error: {0}.")]
+    Parquet(#[from] parquet::errors::ParquetError),
+    #[error("Arrow error: {0}.")]
+    Arrow(#[from] arrow::error::ArrowError),
+    #[error("No data for date {0}.")]
+    NoDataForDate(NaiveDate),
+    #[error("Column not found: {0}.")]
+    ColumnNotFound(&'static str),
+    #[error("Column {0} wrong format: wanted {1}.")]
+    ColumnWrongFormat(&'static str, &'static str),
+}
+
+//type Date32TypeNative = <Date32Type as ArrowPrimitiveType>::Native;
+//
+//// Predicate for filtering records based on a specific date.
 //struct DateFilterPredicate {
 //    date: Date32TypeNative,
 //    column_idx: usize,
@@ -41,7 +42,7 @@
 //        Self { date, column_idx, projection_mask }
 //    }
 //}
-
+//
 //impl ArrowPredicate for DateFilterPredicate {
 //    fn projection(&self) -> &ProjectionMask { &self.projection_mask }
 //
@@ -53,71 +54,80 @@
 //    }
 //}
 
-//pub fn gen_simulation_steps(path: &str, network: &Network) -> Result<Vec<SimulationStep>, DataImportError> {
-//    let datafile = File::open(path)?;
-//
-//    // Use the arrow row filter to only get records for the date we care about.
-//    let builder = ParquetRecordBatchReaderBuilder::try_new(datafile)?;
-//    let row_filter = RowFilter::new(vec![Box::new(DateFilterPredicate::new(network.date, builder.parquet_schema()))]);
-//    let builder = builder.with_row_filter(row_filter);
-//    let reader = builder.build()?;
-//    
-//    let mut station_name_map = HashMap::new();
-//
-//    let mut simulation_steps = Vec::new();
-//    for batch in reader {
-//        // We want to know if the reader returns an error.
-//        let batch = batch?;
-//
-//        let station_names = batch.column_by_name("Station_Name").unwrap().as_string::<i32>();
-//        let passenger_boardings = batch.column_by_name("Passenger_Boardings").unwrap().as_primitive::<UInt16Type>().values();
-//        let passenger_alightings = batch.column_by_name("Passenger_Alightings").unwrap().as_primitive::<UInt16Type>().values();
-//        let departure_time_scheduled = batch.column_by_name("Departure_Time_Scheduled").unwrap().as_primitive::<Time64MicrosecondType>();
-//
-//        for i in 0..batch.num_rows() {
-//            let station_name = station_names.value(i);
-//            let stop_idx = if let Some(stop_idx) = station_name_map.get(station_name) {
-//                *stop_idx
-//            } else {
-//                let stop_idx = match network.get_stop_idx_from_name(&station_name) {
-//                    Some(idx) => idx,
-//                    None => {
-//                        eprintln!("Station not found: {}", station_name);
-//                        continue;
-//                    }
-//                };
-//                station_name_map.insert(station_name.to_string(), stop_idx);
-//                stop_idx
-//            };
-//
-//            let time = (departure_time_scheduled.value(i) / MICROSECONDS) as u32;
-//            let boardings = passenger_boardings[i];
-//            let alightings = passenger_alightings[i];
-//
-//            if boardings > 0 {
-//                simulation_steps.push(SimulationStep {
-//                    time,
-//                    op: SimulationOp::SpawnAgents {
-//                        stop_idx,
-//                        count: boardings,
-//                    },
-//                });
-//            }
-//            if alightings > 0 {
-//                simulation_steps.push(SimulationStep {
-//                    time,
-//                    op: SimulationOp::DeleteAgents {
-//                        stop_idx,
-//                        count: alightings,
-//                    },
-//                });
-//            }
-//        }
-//    }
-//
-//    if simulation_steps.len() == 0 {
-//        Err(DataImportError::NoDataForDate(network.date))
-//    } else {
-//        Ok(simulation_steps)
-//    }
-//}
+pub fn import_patronage_date(reader: impl ChunkReader + 'static, network: &Network) -> Result<Vec<AgentJourney>, DataImportError> {
+    let builder = ParquetRecordBatchReaderBuilder::try_new(reader)?;
+
+    // Use the arrow row filter to only get records for the date we care about.
+    //let row_filter = RowFilter::new(vec![Box::new(DateFilterPredicate::new(network.date, builder.parquet_schema()))]);
+    //let builder = builder.with_row_filter(row_filter);
+
+    let reader = builder.build()?;
+
+    // Hashmap used to cache stop indices.
+    let mut station_name_map = HashMap::new();
+    let mut get_stop_idx_from_name = |network: &Network, station_name: &str| -> Option<StopIndex> {
+        if let Some(stop_idx) = station_name_map.get(station_name) {
+            Some(*stop_idx)
+        } else {
+            let stop_idx = network.get_stop_idx_from_name(&station_name)?;
+            station_name_map.insert(station_name.to_string(), stop_idx);
+            Some(stop_idx)
+        }
+    };
+
+    let mut simulation_steps = Vec::new();
+    for batch in reader {
+        // We want to know if the reader returns an error.
+        let batch = batch?;
+
+        let origins = batch.column_by_name("Origin_Station")
+                           .ok_or(DataImportError::ColumnNotFound("Origin_Station"))?
+            .as_string_opt::<i32>()
+            .ok_or(DataImportError::ColumnWrongFormat("Departure_Time", "String"))?;
+        let destinations = batch.column_by_name("Destination_Station")
+                                .ok_or(DataImportError::ColumnNotFound("Destination_Station"))?
+            .as_string_opt::<i32>()
+            .ok_or(DataImportError::ColumnWrongFormat("Departure_Time", "String"))?;
+        let departure_times_us = batch.column_by_name("Departure_Time")
+                                   .ok_or(DataImportError::ColumnNotFound("Departure_Time"))?
+            .as_primitive_opt::<Time64MicrosecondType>()
+            .ok_or(DataImportError::ColumnWrongFormat("Departure_Time", "Time64Microsecond"))?;
+        let num_agents = batch.column_by_name("Agent_Count")
+                              .ok_or(DataImportError::ColumnNotFound("Agent_Count"))?
+            .as_primitive_opt::<Int32Type>()
+            .ok_or(DataImportError::ColumnWrongFormat("Agent_Count", "Int32"))?
+            .values();
+
+        for i in 0..batch.num_rows() {
+            let origin_name = origins.value(i);
+            let Some(origin_stop) = get_stop_idx_from_name(&network, origin_name) else {
+                // TODO: alert user first time?
+                eprintln!("Station not found: {origin_name}");
+                continue;
+            };
+            let dest_name = destinations.value(i);
+            let Some(dest_stop) = get_stop_idx_from_name(&network, dest_name) else {
+                // TODO: alert user.
+                eprintln!("Station not found: {dest_name}");
+                continue;
+            };
+
+            // Convert from microseconds to seconds.
+            let departure_time = (departure_times_us.value(i) / 1_000_000 ) as Timestamp;
+            let count = num_agents[i] as AgentCount;
+
+            simulation_steps.push(AgentJourney {
+                departure_time,
+                origin_stop,
+                dest_stop,
+                count,
+            });
+        }
+    }
+
+    if simulation_steps.len() == 0 {
+        Err(DataImportError::NoDataForDate(network.date))
+    } else {
+        Ok(simulation_steps)
+    }
+}

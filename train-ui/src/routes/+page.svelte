@@ -3,10 +3,6 @@
   import Visualisation from "$lib/Visualisation.svelte";
 
   let visualisation: Visualisation;
-
-  async function onSimulationFinished() {
-    await visualisation.updateData();
-  }
 </script>
 
 <svelte:head>
@@ -20,7 +16,7 @@
       <Visualisation bind:this={visualisation}/>
     </div>
     <div id="right-panel">
-      <ConfigPanel on:simulation-finished={onSimulationFinished}/>
+      <ConfigPanel on:simulation-finished={() => visualisation.updateData()}/>
     </div>
   </div>
 </div>
