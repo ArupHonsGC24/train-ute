@@ -3,6 +3,6 @@ cd -- "$(dirname "$BASH_SOURCE")" || exit
 rm -r "Train Ute Model.app"
 pushd train-ui || exit
 git pull
-cargo tauri build
+cargo tauri build -b app
 popd || exit
 cp -fr "./target/release/bundle/macos/Train Ute Model.app" "Train Ute Model.app"
