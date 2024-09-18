@@ -28,6 +28,10 @@ body {
   user-select: none;
 }
 
+input, label, button {
+  cursor: inherit;
+}
+
 input,
 button,
 textarea,

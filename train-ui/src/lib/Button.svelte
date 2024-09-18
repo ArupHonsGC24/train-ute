@@ -17,7 +17,6 @@
   button {
     background-color: #a28a6f;
     color: white;
-    cursor: inherit;
   }
 
   button:disabled {

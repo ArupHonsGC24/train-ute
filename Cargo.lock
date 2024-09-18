@@ -5405,8 +5405,10 @@ dependencies = [
 name = "train-ui"
 version = "0.1.0"
 dependencies = [
+ "arrow 53.0.0",
  "chrono",
  "gtfs-structures",
+ "parquet",
  "raptor-rs",
  "serde",
  "serde_json",

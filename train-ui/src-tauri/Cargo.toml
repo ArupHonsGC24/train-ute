@@ -27,6 +27,8 @@ raptor-rs = { path = "../../raptor-rs" }
 tauri-plugin-dialog = "2.0.0-rc"
 # log = "0.4.22"
 
-gtfs-structures = { version = "^0.41.2", default-features = false }
-chrono = { version = "^0.4.38", default-features = false }
+parquet = { version = "53.0.0" }
+arrow = { version = "53.0.0", default-features = false }
+gtfs-structures = { version = "0.41.2", default-features = false }
+chrono = { version = "0.4.38", default-features = false }
 thiserror = "1.0.61"

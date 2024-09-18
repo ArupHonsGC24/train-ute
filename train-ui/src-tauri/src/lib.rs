@@ -1,15 +1,15 @@
 use std::io::Cursor;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use chrono::NaiveDate;
 use gtfs_structures::{Gtfs, GtfsReader};
 use raptor::Network;
 use tauri::{ipc, AppHandle, Emitter, State};
-use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_dialog::{DialogExt, FilePath};
 use train_ute::{data_export, simulation};
 
 #[derive(Debug, thiserror::Error)]
-enum Error {
+enum CmdError {
     #[error("Unexpected request body.")]
     RequestBodyMustBeRaw,
     /*    #[error("Missing header entry: `{0}`.")]
@@ -20,6 +20,8 @@ enum Error {
     PrerequisiteUnsatisfied(&'static str),
     #[error("Data export error: {0}.")]
     DataExport(#[from] data_export::DataExportError),
+    #[error("Path conversion error: {0}.")]
+    PathConversion(FilePath),
     #[error("Mutex poisoned.")]
     MutexPoisoned,
     #[error("IO error: {0}.")]
@@ -30,14 +32,16 @@ enum Error {
     Tauri(#[from] tauri::Error),
 }
 
+type CmdResult<T> = Result<T, CmdError>;
+
 // Can't contain a poison error in returned error because it allows access to the mutex.
-impl<T> From<std::sync::PoisonError<T>> for Error {
+impl<T> From<std::sync::PoisonError<T>> for CmdError {
     fn from(_err: std::sync::PoisonError<T>) -> Self {
         Self::MutexPoisoned
     }
 }
 
-impl serde::Serialize for Error {
+impl serde::Serialize for CmdError {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::ser::Serializer,
@@ -66,15 +70,27 @@ struct AppStateData {
     trip_data: Vec<u8>,
 }
 
+impl AppStateData {
+    pub fn get_loaded_gtfs(&self) -> CmdResult<&LoadedGtfs> {
+        self.loaded_gtfs.as_ref().ok_or(CmdError::PrerequisiteUnsatisfied("GTFS data must be loaded first."))
+    }
+    pub fn get_network(&self) -> CmdResult<&Network> {
+        self.network.as_ref().ok_or(CmdError::PrerequisiteUnsatisfied("Network must be generated first."))
+    }
+    pub fn get_sim_result(&self) -> CmdResult<&simulation::SimulationResult> {
+        self.sim_result.as_ref().ok_or(CmdError::PrerequisiteUnsatisfied("Simulation must be run first."))
+    }
+}
+
 #[derive(Default)]
 struct AppState {
-    data: Arc<Mutex<AppStateData>>,
+    data: Mutex<AppStateData>,
 }
 
 #[tauri::command]
-async fn load_gtfs(request: ipc::Request<'_>, state: State<'_, AppState>) -> Result<DateRange, Error> {
+async fn load_gtfs(request: ipc::Request<'_>, state: State<'_, AppState>) -> CmdResult<DateRange> {
     let ipc::InvokeBody::Raw(gtfs_zip) = request.body() else {
-        return Err(Error::RequestBodyMustBeRaw);
+        return Err(CmdError::RequestBodyMustBeRaw);
     };
 
     // Load GTFS data. TODO: Why does this take so long? Probably because it was a debug build.
@@ -82,7 +98,7 @@ async fn load_gtfs(request: ipc::Request<'_>, state: State<'_, AppState>) -> Res
     match GtfsReader::default().raw().read_from_reader(Cursor::new(gtfs_zip)).and_then(Gtfs::try_from) {
         Ok(gtfs) => {
             if gtfs.shapes.is_empty() {
-                return Err(Error::PrerequisiteUnsatisfied("GTFS data must contain shapes."));
+                return Err(CmdError::PrerequisiteUnsatisfied("GTFS data must contain shapes."));
             }
 
             println!("Successfully loaded GTFS data in {}ms.", gtfs.read_duration);
@@ -103,15 +119,13 @@ async fn load_gtfs(request: ipc::Request<'_>, state: State<'_, AppState>) -> Res
 }
 
 #[tauri::command]
-async fn gen_network(model_date: NaiveDate, state: State<'_, AppState>) -> Result<(), Error> {
+async fn gen_network(model_date: NaiveDate, state: State<'_, AppState>) -> CmdResult<()> {
     let mut app_data = state.data.lock()?;
 
-    let Some(loaded_gtfs) = app_data.loaded_gtfs.as_ref() else {
-        return Err(Error::PrerequisiteUnsatisfied("GTFS data must be loaded first."));
-    };
+    let loaded_gtfs = app_data.get_loaded_gtfs()?;
 
     if model_date < loaded_gtfs.date_range.min || model_date > loaded_gtfs.date_range.max {
-        return Err(Error::PrerequisiteUnsatisfied("Model date must be within the GTFS date range."));
+        return Err(CmdError::PrerequisiteUnsatisfied("Model date must be within the GTFS date range."));
     }
 
     // TODO: Make user specifiable.
@@ -122,6 +136,7 @@ async fn gen_network(model_date: NaiveDate, state: State<'_, AppState>) -> Resul
 
     // Line shapes are constant for the network, so calculate here.
     app_data.path_data = Vec::new();
+    // TODO rename data export functions (as they are now used in-process).
     data_export::export_shape_file(&network, &mut app_data.path_data)?;
 
     app_data.network = Some(network);
@@ -129,13 +144,27 @@ async fn gen_network(model_date: NaiveDate, state: State<'_, AppState>) -> Resul
     Ok(())
 }
 
+const PARQUET_FILTER: &[&str] = &["parquet", "pq"];
+
 #[tauri::command]
-async fn run_simulation(app: AppHandle, state: State<'_, AppState>) -> Result<(), Error> {
+async fn patronage_data_import(app: AppHandle, state: State<'_, AppState>) -> CmdResult<()> {
+    let Some(filepath) = app.dialog()
+        .file()
+        .add_filter("Parquet", PARQUET_FILTER)
+        .blocking_pick_file() else {
+        // User cancelled.
+        return Ok(());
+    };
+    let filepath = filepath.as_path().ok_or(CmdError::PathConversion(filepath.clone()))?;
+
+    Ok(())
+}
+
+#[tauri::command]
+async fn run_simulation(app: AppHandle, state: State<'_, AppState>) -> CmdResult<()> {
     let mut app_data = state.data.lock()?;
 
-    let Some(network) = app_data.network.as_ref() else {
-        return Err(Error::PrerequisiteUnsatisfied("Network must be generated first."));
-    };
+    let network = app_data.network.as_ref().ok_or(CmdError::PrerequisiteUnsatisfied("Network must be generated first."))?;
 
     // TODO: use data import.
     let num_agents = 72000;
@@ -158,28 +187,34 @@ async fn run_simulation(app: AppHandle, state: State<'_, AppState>) -> Result<()
 }
 
 #[tauri::command]
-fn export_results(app: AppHandle, state: State<'_, AppState>) -> Result<(), Error> {
-    println!("export results.");
-    let app_data = Arc::clone(&state.data);
-    app.dialog().file().add_filter("Parquet", &["*.parquet"]).save_file(move |filepath| {
-        // TODO: lots on unwraps in here: handle errors.
-        if let Some(filepath) = filepath {
-            let app_data = app_data.lock().unwrap();
-            data_export::export_agent_counts(filepath.as_path().unwrap(), app_data.network.as_ref().unwrap(), app_data.sim_result.as_ref().unwrap()).unwrap();
-        }
-    });
-    
+async fn export_results(app: AppHandle, state: State<'_, AppState>) -> CmdResult<()> {
+    let app_data = state.data.lock()?;
+
+    let network = app_data.get_network()?;
+    let sim_result = app_data.get_sim_result()?;
+
+    let Some(filepath) = app.dialog()
+        .file()
+        .add_filter("Parquet", PARQUET_FILTER)
+        .blocking_save_file() else {
+        // User cancelled.
+        return Ok(());
+    };
+
+    let filepath = filepath.as_path().ok_or(CmdError::PathConversion(filepath.clone()))?;
+    data_export::export_agent_counts(filepath, network, sim_result)?;
+
     Ok(())
 }
 
 #[tauri::command]
-fn get_path_data(state: State<'_, AppState>) -> Result<ipc::Response, Error> {
+fn get_path_data(state: State<'_, AppState>) -> CmdResult<ipc::Response> {
     let app_data = state.data.lock()?;
     Ok(ipc::Response::new(app_data.path_data.clone()))
 }
 
 #[tauri::command]
-fn get_trip_data(state: State<'_, AppState>) -> Result<ipc::Response, Error> {
+fn get_trip_data(state: State<'_, AppState>) -> CmdResult<ipc::Response> {
     let app_data = state.data.lock()?;
     Ok(ipc::Response::new(app_data.trip_data.clone()))
 }
@@ -188,7 +223,15 @@ fn get_trip_data(state: State<'_, AppState>) -> Result<ipc::Response, Error> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![load_gtfs, gen_network, run_simulation, export_results, get_trip_data, get_path_data])
+        .invoke_handler(tauri::generate_handler![
+            load_gtfs, 
+            gen_network, 
+            run_simulation, 
+            patronage_data_import, 
+            export_results, 
+            get_trip_data, 
+            get_path_data
+        ])
         .manage(AppState::default())
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

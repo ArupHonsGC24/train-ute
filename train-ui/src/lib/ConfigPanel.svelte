@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { invoke } from "@tauri-apps/api/core";
   import { createEventDispatcher } from "svelte";
+  import { callBackend, callBackendWithWaitCursor, runWithWaitCursor } from "./utilities";
   import Button from "./Button.svelte";
 
   let dispatch = createEventDispatcher();
@@ -19,13 +19,6 @@
 
   let allowedDateRange: DateRange | undefined = undefined;
 
-  async function runWithWaitCursor<T>(func: () => Promise<T>) {
-    document.body.style.cursor = "wait";
-    let result = await func();
-    document.body.style.cursor = "auto";
-    return result;
-  }
-
   // A bit of fancy async/await to handle the file upload.
   async function loadGTFS(event: Event) {
     if (inputFiles && inputFiles.length > 0) {
@@ -35,7 +28,7 @@
 
         allowedDateRange = await runWithWaitCursor(async () => {
           let loadedGtfsZip = await file.arrayBuffer();
-          return await invoke("load_gtfs", loadedGtfsZip);
+          return await callBackend("load_gtfs", loadedGtfsZip);
         });
 
         if (allowedDateRange) {
@@ -57,40 +50,19 @@
   }
 
   let modelDate = "2024-05-10";
+  // TODO: invalidate on different date.
   let runSimulationDisabled = true;
   let exportResultsDisabled = true;
 
   async function generateNetwork() {
-    try {
-      await runWithWaitCursor(async () => {
-        await invoke("gen_network", { modelDate });
-      });
-      runSimulationDisabled = false;
-    } catch (err) {
-      alert(err);
-    }
+    await callBackendWithWaitCursor("gen_network", { modelDate });
+    runSimulationDisabled = false;
   }
 
   async function runSimulation() {
-    try {
-      await runWithWaitCursor(async () => {
-        await invoke("run_simulation");
-      });
-      exportResultsDisabled = false;
-      dispatch("simulation-finished");
-    } catch (err) {
-      alert(err);
-    }
-  }
-
-  async function exportResults() {
-    try {
-      await runWithWaitCursor(async () => {
-        await invoke("export_results");
-      });
-    } catch (err) {
-      alert(err);
-    }
+    await callBackendWithWaitCursor("run_simulation");
+    exportResultsDisabled = false;
+    dispatch("simulation-finished");
   }
 </script>
 
@@ -136,7 +108,11 @@
     on:click={generateNetwork}
   />
 
-  <Button text="Patronage Data Import" class="cfg-style" />
+  <Button
+    text="Patronage Data Import"
+    class="cfg-style"
+    on:click={() => callBackendWithWaitCursor("patronage_data_import")}
+  />
 
   <Button
     text="Run Simulation"
@@ -151,7 +127,7 @@
     class="cfg-style"
     disabled={exportResultsDisabled}
     disabledTooltip="Run simulation first."
-    on:click={exportResults}
+    on:click={() => callBackendWithWaitCursor("export_results")}
   />
 </div>
 
@@ -192,7 +168,6 @@
   input {
     background-color: #5e503f;
     color: white;
-    cursor: inherit;
   }
 
   input[type="file"] {
