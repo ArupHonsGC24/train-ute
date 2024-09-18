@@ -51,11 +51,17 @@
 
   let modelDate = "2024-05-10";
   // TODO: invalidate on different date.
+  let dataImportDisabled = true;
   let runSimulationDisabled = true;
   let exportResultsDisabled = true;
 
   async function generateNetwork() {
     await callBackendWithWaitCursor("gen_network", { modelDate });
+    dataImportDisabled = false;
+  }
+
+  async function patronageDataImport() {
+    await callBackendWithWaitCursor("patronage_data_import");
     runSimulationDisabled = false;
   }
 
@@ -64,6 +70,7 @@
     exportResultsDisabled = false;
     dispatch("simulation-finished");
   }
+
 </script>
 
 <div id="cfg-panel">
@@ -111,7 +118,8 @@
   <Button
     text="Patronage Data Import"
     class="cfg-style"
-    on:click={() => callBackendWithWaitCursor("patronage_data_import")}
+    disabled={dataImportDisabled}
+    on:click={patronageDataImport}
   />
 
   <Button

@@ -71,9 +71,9 @@ impl<C: Fn(f32)> SimulationParams for DefaultSimulationParams<C> {
     }
 }
 pub struct AgentJourney {
-    pub start_time: Timestamp,
-    pub start_stop: StopIndex,
-    pub end_stop: StopIndex,
+    pub departure_time: Timestamp,
+    pub origin_stop: StopIndex,
+    pub dest_stop: StopIndex,
     pub count: AgentCount,
 }
 
@@ -98,9 +98,9 @@ pub fn gen_simulation_steps(network: &Network, number: Option<usize>, seed: Opti
     for i in 0..number {
         let start_time = sim_start_time + (i as f64 * interval) as Timestamp;
         simulation_steps.push(AgentJourney {
-            start_time,
-            start_stop: rng.gen_range(0..num_stops),
-            end_stop: rng.gen_range(0..num_stops),
+            departure_time: start_time,
+            origin_stop: rng.gen_range(0..num_stops),
+            dest_stop: rng.gen_range(0..num_stops),
             count: rng.gen_range(1..=10),
         });
     }
@@ -121,10 +121,10 @@ pub fn run_simulation<T: SimulationParams, const P: bool>(network: &Network, sim
     // TODO: test just using map instead of atomics?
     simulation_steps.par_iter().tqdm().for_each(|journey| {
         let query = if false {
-            csa_query(network, journey.start_stop, journey.start_time, journey.end_stop)
+            csa_query(network, journey.origin_stop, journey.departure_time, journey.dest_stop)
             //mc_csa_query(network, journey.start_stop, journey.start_time, journey.end_stop, &trip_stops_cost)
         } else {
-            raptor_query(network, journey.start_stop, journey.start_time, journey.end_stop)
+            raptor_query(network, journey.origin_stop, journey.departure_time, journey.dest_stop)
             //mc_raptor_query(network, journey.start_stop, journey.start_time, journey.end_stop, &trip_stops_cost)
         };
 
