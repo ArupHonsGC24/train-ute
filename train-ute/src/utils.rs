@@ -1,12 +1,4 @@
-use rayon::{ThreadPool, ThreadPoolBuildError};
 use rgb::RGB8;
-
-#[allow(dead_code)]
-pub fn create_pool(num_threads: usize) -> Result<ThreadPool, ThreadPoolBuildError> {
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(num_threads)
-        .build()
-}
 
 pub fn mix_rgb(a: RGB8, b: RGB8, t: f32) -> RGB8 {
     RGB8 {

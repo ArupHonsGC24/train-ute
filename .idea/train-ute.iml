@@ -9,6 +9,8 @@
       <sourceFolder url="file://$MODULE_DIR$/raptor-rs/benches" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/raptor-rs/dev_utils/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/train-ui/src-tauri/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/train-ute/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/train-ute/examples" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

@@ -175,7 +175,7 @@ async fn patronage_data_import(app: AppHandle, state: State<'_, AppState>) -> Cm
 
     let datafile = File::open(filepath)?;
 
-    app_data.sim_steps = Some(data_import::import_patronage_date(datafile, network)?);
+    app_data.sim_steps = Some(data_import::build_simulation_steps_from_patronage_data(datafile, network)?);
 
     Ok(())
 }

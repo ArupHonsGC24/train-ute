@@ -54,7 +54,7 @@ pub enum DataImportError {
 //    }
 //}
 
-pub fn import_patronage_date(reader: impl ChunkReader + 'static, network: &Network) -> Result<Vec<SimulationStep>, DataImportError> {
+pub fn build_simulation_steps_from_patronage_data(reader: impl ChunkReader + 'static, network: &Network) -> Result<Vec<SimulationStep>, DataImportError> {
     let builder = ParquetRecordBatchReaderBuilder::try_new(reader)?;
 
     // Use the arrow row filter to only get records for the date we care about.

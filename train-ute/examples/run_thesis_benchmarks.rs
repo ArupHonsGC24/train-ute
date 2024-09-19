@@ -5,16 +5,16 @@ use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 use std::time::Instant;
-
+use rayon::{ThreadPool, ThreadPoolBuildError};
 use raptor::network::Network;
+use train_ute::{data_export, simulation};
+use train_ute::simulation::{DefaultSimulationParams, SimulationResult};
 
-use crate::simulation::{DefaultSimulationParams, SimulationResult};
-use crate::utils::create_pool;
-
-mod simulation;
-mod data_import;
-mod data_export;
-mod utils;
+pub fn create_pool(num_threads: usize) -> Result<ThreadPool, ThreadPoolBuildError> {
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(num_threads)
+        .build()
+}
 
 fn user_input(prompt: &str) -> Result<Option<String>, std::io::Error> {
     print!("{prompt}");

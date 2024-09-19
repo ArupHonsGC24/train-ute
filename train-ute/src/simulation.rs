@@ -87,6 +87,12 @@ pub struct SimulationResult {
     pub agent_journeys: Vec<AgentJourney>,
 }
 
+impl SimulationResult {
+    pub fn print_stats(&self) {
+        println!("Agent journeys: {}", self.agent_journeys.len());
+    }
+}
+
 pub fn gen_simulation_steps(network: &Network, number: Option<usize>, seed: Option<u64>) -> Vec<SimulationStep> {
     let mut simulation_steps = Vec::new();
     let num_stops = network.num_stops() as StopIndex;
@@ -124,6 +130,7 @@ pub fn run_simulation<T: SimulationParams, const P: bool>(network: &Network, sim
     let mut trip_stops_cost = vec![0 as CrowdingCost; network.stop_times.len()];
     params.progress_callback(0.);
 
+    // TODO: Compare speed and output when using relaxed ordering.
     let agent_journeys = simulation_steps.par_iter().tqdm().enumerate().map(|(i, sim_step)| {
         if sim_step.count == 0 {
             return None;
