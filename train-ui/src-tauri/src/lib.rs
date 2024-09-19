@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::{ipc, AppHandle, Emitter, State};
 use tauri_plugin_dialog::{DialogExt, FilePath};
+use raptor::journey::JourneyPreferences;
 use train_ute::{data_export, data_import, simulation};
 
 #[derive(Debug, thiserror::Error)]
@@ -187,11 +188,15 @@ async fn run_simulation(app: AppHandle, state: State<'_, AppState>) -> CmdResult
     let network = app_data.get_network()?;
     let simulation_steps = app_data.get_sim_steps()?;
 
-    let params = simulation::DefaultSimulationParams::new(794, Some(|progress| {
+    let params = simulation::DefaultSimulationParams::new(
+        794,
+        Some(|progress| {
         app.emit("simulation-progress", progress).unwrap();
-    }));
+        }),
+        JourneyPreferences::default(),
+    );
 
-    let sim_result = Some(simulation::run_simulation::<_, true>(network, &simulation_steps, &params));
+    let sim_result = Some(simulation::run_simulation(network, &simulation_steps, &params));
 
     // Export the trip data
     let mut trip_data = Vec::new();

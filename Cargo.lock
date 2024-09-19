@@ -1457,6 +1457,7 @@ dependencies = [
  "chrono",
  "gtfs-structures",
  "raptor-rs",
+ "rayon",
 ]
 
 [[package]]

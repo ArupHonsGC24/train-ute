@@ -1,6 +1,7 @@
 use std::fs;
 use std::fs::File;
 use std::path::Path;
+use raptor::journey::JourneyPreferences;
 use train_ute::simulation::DefaultSimulationParams;
 use train_ute::{data_export, data_import, simulation};
 
@@ -18,12 +19,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // https://vicsig.net/suburban/train/X'Trapolis
         794,
         None,
+        JourneyPreferences::default(),
     );
 
     let simulation_steps = data_import::build_simulation_steps_from_patronage_data(dev_utils::find_example_patronage_data()?, &network)?;
+    //let simulation_steps = simulation::gen_simulation_steps(&network, Some(1000000), Some(0));
 
-    let simulation_result = simulation::run_simulation::<_, true>(&network, &simulation_steps, &params);
-    simulation_result.print_stats();
+    let simulation_result= simulation::run_simulation(&network, &simulation_steps, &params);
 
     let data_export_folder = Path::new("../train_ute_export");
     println!("Exporting simulation data to {:?}", data_export_folder.canonicalize()?);
