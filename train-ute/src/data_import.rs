@@ -2,6 +2,7 @@ use crate::simulation::{AgentCount, SimulationStep};
 use arrow::array::AsArray;
 use arrow::datatypes::{Int32Type, Time64MicrosecondType};
 use chrono::NaiveDate;
+use itertools::Itertools;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use parquet::file::reader::ChunkReader;
 use raptor::network::{StopIndex, Timestamp};
@@ -15,6 +16,8 @@ pub enum DataImportError {
     Parquet(#[from] parquet::errors::ParquetError),
     #[error("Arrow error: {0}.")]
     Arrow(#[from] arrow::error::ArrowError),
+    //#[error("DataFusion error: {0}.")]
+    //DataFusion(#[from] datafusion::common::DataFusionError),
     #[error("No data for date {0}.")]
     NoDataForDate(NaiveDate),
     #[error("Column not found: {0}.")]
@@ -54,6 +57,7 @@ pub enum DataImportError {
 //    }
 //}
 
+//pub fn build_simulation_steps_from_patronage_data(path: &str, network: &Network) -> Result<Vec<SimulationStep>, DataImportError> {
 pub fn build_simulation_steps_from_patronage_data(reader: impl ChunkReader + 'static, network: &Network) -> Result<Vec<SimulationStep>, DataImportError> {
     let builder = ParquetRecordBatchReaderBuilder::try_new(reader)?;
 
@@ -75,7 +79,7 @@ pub fn build_simulation_steps_from_patronage_data(reader: impl ChunkReader + 'st
         }
     };
 
-    let mut simulation_steps = Vec::new();
+    let mut simulation_steps = HashMap::new();
     for batch in reader {
         // We want to know if the reader returns an error.
         let batch = batch?;
@@ -89,7 +93,7 @@ pub fn build_simulation_steps_from_patronage_data(reader: impl ChunkReader + 'st
             .as_string_opt::<i32>()
             .ok_or(DataImportError::ColumnWrongFormat("Departure_Time", "String"))?;
         let departure_times_us = batch.column_by_name("Departure_Time")
-                                   .ok_or(DataImportError::ColumnNotFound("Departure_Time"))?
+                                      .ok_or(DataImportError::ColumnNotFound("Departure_Time"))?
             .as_primitive_opt::<Time64MicrosecondType>()
             .ok_or(DataImportError::ColumnWrongFormat("Departure_Time", "Time64Microsecond"))?;
         let num_agents = batch.column_by_name("Agent_Count")
@@ -113,21 +117,18 @@ pub fn build_simulation_steps_from_patronage_data(reader: impl ChunkReader + 'st
             };
 
             // Convert from microseconds to seconds.
-            let departure_time = (departure_times_us.value(i) / 1_000_000 ) as Timestamp;
+            let departure_time = (departure_times_us.value(i) / 1_000_000) as Timestamp;
             let count = num_agents[i] as AgentCount;
 
-            simulation_steps.push(SimulationStep {
-                departure_time,
-                origin_stop,
-                dest_stop,
-                count,
-            });
+            let simulation_step = simulation_steps.entry((departure_time, origin_stop))
+                                                  .or_insert_with(|| SimulationStep::new(departure_time, origin_stop));
+            simulation_step.push(dest_stop, count);
         }
     }
 
     if simulation_steps.len() == 0 {
         Err(DataImportError::NoDataForDate(network.date))
     } else {
-        Ok(simulation_steps)
+        Ok(simulation_steps.into_values().collect_vec())
     }
 }

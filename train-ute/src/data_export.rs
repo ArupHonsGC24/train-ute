@@ -363,7 +363,7 @@ pub fn export_agent_journeys(writer: impl Write + Send, network: &Network, simul
     for i in 0..num_agents {
         for round in 0..simulation_result.round_agent_journeys.len() {
             let journey = &simulation_result.round_agent_journeys[round][i];
-            agent_ids.push(journey.agent_id);
+            agent_ids.push(i as u32);
             match &journey.result {
                 Ok(journey) => {
                     status.push("Ok");

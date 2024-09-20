@@ -1,7 +1,7 @@
 use std::io::IsTerminal;
 use std::sync::atomic::{AtomicI32, Ordering};
-
-use kdam::{par_tqdm, tqdm};
+use itertools::izip;
+use kdam::{Spinner, par_tqdm, tqdm};
 use rand::prelude::*;
 use raptor::journey::{JourneyError, JourneyPreferences};
 use raptor::network::{GlobalTripIndex, PathfindingCost, StopIndex, Timestamp};
@@ -69,11 +69,30 @@ impl<C: Fn(f32)> SimulationParams for DefaultSimulationParams<C> {
         &self.journey_preferences
     }
 }
+
 pub struct SimulationStep {
     pub departure_time: Timestamp,
-    pub origin_stop: StopIndex,
-    pub dest_stop: StopIndex,
-    pub count: AgentCount,
+    pub origin_stop: StopIndex, 
+    dest_stops: Vec<StopIndex>,
+    counts: Vec<AgentCount>,
+}
+
+impl SimulationStep {
+    pub fn new(departure_time: Timestamp, origin_stop: StopIndex) -> Self {
+        Self {
+            departure_time,
+            origin_stop,
+            dest_stops: Vec::new(),
+            counts: Vec::new(),
+        }
+    }
+    pub fn count(&self) -> AgentCount {
+        self.counts.iter().sum()
+    }
+    pub fn push(&mut self, dest_stop: StopIndex, count: AgentCount) {
+        self.dest_stops.push(dest_stop);
+        self.counts.push(count);
+    }
 }
 
 pub struct AgentJourney {
@@ -88,17 +107,9 @@ pub struct AgentJourney {
 }
 
 pub struct AgentJourneyResult {
-    pub agent_id: u32,
+    pub sim_step_idx: u32,
+    pub journey_idx: u32,
     pub result: Result<AgentJourney, JourneyError>,
-}
-
-impl AgentJourneyResult {
-    pub fn with_err(agent_id: u32, err: JourneyError) -> Self {
-        Self {
-            agent_id,
-            result: Err(err),
-        }
-    }
 }
 
 pub struct SimulationRoundResult {
@@ -138,8 +149,8 @@ pub fn gen_simulation_steps(network: &Network, number: Option<usize>, seed: Opti
         simulation_steps.push(SimulationStep {
             departure_time: start_time,
             origin_stop: rng.gen_range(0..num_stops),
-            dest_stop: rng.gen_range(0..num_stops),
-            count: rng.gen_range(1..=10),
+            dest_stops: vec![rng.gen_range(0..num_stops)],
+            counts: vec![rng.gen_range(1..=10)],
         });
     }
     simulation_steps
@@ -164,95 +175,124 @@ fn run_simulation_round(network: &Network,
     assert_eq!(trip_stops_pop.len(), crowding_cost.len());
 
     let journey_preferences = params.get_journey_preferences();
-
+    let spin = Spinner::new(
+        &[
+            "▁▂▃",
+            "▂▃▄",
+            "▃▄▅",
+            "▄▅▆",
+            "▅▆▇",
+            "▆▇█",
+            "▇█▇",
+            "█▇▆",
+            "▇▆▅",
+            "▆▅▄",
+            "▅▄▃",
+            "▄▃▂",
+            "▃▂▁",
+        ],
+        30.0,
+        1.0,
+    );
     let agent_journeys = par_tqdm!(
         simulation_steps.par_iter(),
         desc = "Simulation Steps", 
         position = (round_number + 1) as u16,
-        animation = kdam::Animation::FillUp
+        animation = kdam::Animation::FillUp,
+        spinner = spin
     )
         .enumerate()
-        .map(|(i, sim_step)| {
-            if sim_step.count == 0 {
+        .map(|(sim_step_idx, sim_step)| {
+            let sim_step_idx = sim_step_idx as u32;
+            if sim_step.count() == 0 {
                 // Ignore zero-count agents.
-                return AgentJourneyResult {
-                    agent_id: i as u32,
-                    result: Err(JourneyError::NoJourneyFound),
-                };
+                return (0..sim_step.dest_stops.len() as u32).map(|journey_idx| {
+                    AgentJourneyResult {
+                        sim_step_idx,
+                        journey_idx,
+                        result: Err(JourneyError::NoJourneyFound),
+                    }
+                }).collect::<Vec<_>>();
             }
 
             //let journey = raptor::raptor_query(network, sim_step.origin_stop, sim_step.departure_time, sim_step.dest_stop);
-            let journey = raptor::mc_raptor_query(network,
-                                                  sim_step.origin_stop,
-                                                  sim_step.departure_time,
-                                                  sim_step.dest_stop,
-                                                  crowding_cost,
-                                                  journey_preferences);
+            let journeys = raptor::mc_raptor_query(network,
+                                                   sim_step.origin_stop,
+                                                   sim_step.departure_time,
+                                                   &sim_step.dest_stops,
+                                                   crowding_cost,
+                                                   journey_preferences);
 
-            let journey = match journey {
-                Ok(journey) => journey,
-                Err(err) => return AgentJourneyResult {
-                    agent_id: i as u32,
-                    result: Err(err),
-                },
-            };
+            izip!(0..journeys.len() as u32, journeys.into_iter(), &sim_step.counts, &sim_step.dest_stops)
+                .map(|(journey_idx, journey, &count, &dest_stop)| {
+                    let journey = match journey {
+                        Ok(journey) => journey,
+                        Err(err) => return AgentJourneyResult {
+                            sim_step_idx,
+                            journey_idx,
+                            result: Err(err),
+                        },
+                    };
 
-            if journey.legs.is_empty() {
-                // Ignore empty journeys.
-                return AgentJourneyResult {
-                    agent_id: i as u32,
-                    result: Err(JourneyError::NoJourneyFound),
-                };
-            }
+                    if journey.legs.is_empty() {
+                        // Ignore empty journeys.
+                        return AgentJourneyResult {
+                            sim_step_idx,
+                            journey_idx,
+                            result: Err(JourneyError::NoJourneyFound),
+                        };
+                    }
 
-            // Because journey.legs.len() > 0, these are guaranteed to be set in the loop;
-            let mut origin_trip = GlobalTripIndex::default();
-            let mut dest_trip = GlobalTripIndex::default();
+                    // Because journey.legs.len() > 0, these are guaranteed to be set in the loop;
+                    let mut origin_trip = GlobalTripIndex::default();
+                    let mut dest_trip = GlobalTripIndex::default();
 
-            for (i, leg) in journey.legs.iter().enumerate() {
-                let route = &network.routes[leg.trip.route_idx as usize];
-                let trip = &trip_stops_pop[route.get_trip_range(leg.trip.trip_order as usize)];
+                    for (i, leg) in journey.legs.iter().enumerate() {
+                        let route = &network.routes[leg.trip.route_idx as usize];
+                        let trip = &trip_stops_pop[route.get_trip_range(leg.trip.trip_order as usize)];
 
-                // Record first and last trip.
-                if i == 0 {
-                    origin_trip = leg.trip;
-                }
-                if i == journey.legs.len() - 1 {
-                    dest_trip = leg.trip;
-                }
+                        // Record first and last trip.
+                        if i == 0 {
+                            origin_trip = leg.trip;
+                        }
+                        if i == journey.legs.len() - 1 {
+                            dest_trip = leg.trip;
+                        }
 
-                let count = sim_step.count as PopulationCount;
-                let boarded_stop_order = leg.boarded_stop_order as usize;
-                let arrival_stop_order = leg.arrival_stop_order as usize;
-                // Add one agent to this span of trip stops.
-                trip[boarded_stop_order].fetch_add(count, Ordering::Relaxed);
-                // Remove agent at stop (for inclusive-exclusive range).
-                trip[arrival_stop_order].fetch_sub(count, Ordering::Relaxed);
+                        let count = count as PopulationCount;
+                        let boarded_stop_order = leg.boarded_stop_order as usize;
+                        let arrival_stop_order = leg.arrival_stop_order as usize;
+                        // Add one agent to this span of trip stops.
+                        trip[boarded_stop_order].fetch_add(count, Ordering::Relaxed);
+                        // Remove agent at stop (for inclusive-exclusive range).
+                        trip[arrival_stop_order].fetch_sub(count, Ordering::Relaxed);
 
-                // Non-prefix-sum version.
-                //{
-                //    assert!(boarded_stop_order < arrival_stop_order, "{boarded_stop_order} < {arrival_stop_order}")
-                //    // Iterate over all stops in the trip, adding the agent count.
-                //    for i in boarded_stop_order..arrival_stop_order {
-                //        trip[i].fetch_add(count, Ordering::Relaxed);
-                //    }
-                //}
-            }
+                        // Non-prefix-sum version.
+                        //{
+                        //    assert!(boarded_stop_order < arrival_stop_order, "{boarded_stop_order} < {arrival_stop_order}")
+                        //    // Iterate over all stops in the trip, adding the agent count.
+                        //    for i in boarded_stop_order..arrival_stop_order {
+                        //        trip[i].fetch_add(count, Ordering::Relaxed);
+                        //    }
+                        //}
+                    }
 
-            AgentJourneyResult {
-                agent_id: i as u32,
-                result: Ok(AgentJourney {
-                    origin_stop: sim_step.origin_stop,
-                    origin_trip,
-                    dest_stop: sim_step.dest_stop,
-                    dest_trip,
-                    count: sim_step.count,
-                    duration: journey.duration,
-                    crowding_cost: 0., // TODO: calculate crowding cost.
-                    num_transfers: (journey.legs.len() - 1) as u8,
-                }),
-            }
-        }).collect::<Vec<_>>();
+                    AgentJourneyResult {
+                        sim_step_idx,
+                        journey_idx,
+                        result: Ok(AgentJourney {
+                            origin_stop: sim_step.origin_stop,
+                            origin_trip,
+                            dest_stop,
+                            dest_trip,
+                            count,
+                            duration: journey.duration,
+                            crowding_cost: 0., // TODO: calculate crowding cost.
+                            num_transfers: (journey.legs.len() - 1) as u8,
+                        }),
+                    }
+                }).collect::<Vec<_>>()
+        }).flatten().collect::<Vec<_>>();
 
     let mut trip_stops_cost = vec![0 as CrowdingCost; network.stop_times.len()];
 
@@ -296,12 +336,6 @@ pub fn run_simulation(network: &Network, simulation_steps: &[SimulationStep], pa
 
     kdam::term::init(std::io::stderr().is_terminal());
     handle_io_error(kdam::term::hide_cursor());
-
-    //= run_simulation_round(network, simulation_steps, params, None);
-    //handle_io_error(pb.update(1));
-    //// Round 1
-    //let mut current_round_result = run_simulation_round(network, simulation_steps, params, Some(&first_round_result.crowding_cost));
-    //handle_io_error(pb.update(1));
 
     let num_rounds = 3usize;
     let mut simulation_rounds = Vec::with_capacity(num_rounds);
