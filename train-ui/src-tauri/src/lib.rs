@@ -103,7 +103,7 @@ async fn load_gtfs(request: ipc::Request<'_>, state: State<'_, AppState>) -> Cmd
         return Err(CmdError::RequestBodyMustBeRaw);
     };
 
-    // Load GTFS data. TODO: Why does this take so long? Probably because it was a debug build.
+    // Load GTFS data.
     // TODO: Refactor this into a separate function (and put in a separate frontend crate?).
     match GtfsReader::default().raw().read_from_reader(Cursor::new(gtfs_zip)).and_then(Gtfs::try_from) {
         Ok(gtfs) => {
@@ -191,7 +191,7 @@ async fn run_simulation(app: AppHandle, state: State<'_, AppState>) -> CmdResult
     let params = simulation::DefaultSimulationParams::new(
         794,
         Some(|progress| {
-        app.emit("simulation-progress", progress).unwrap();
+            app.emit("simulation-progress", progress).unwrap();
         }),
         JourneyPreferences::default(),
     );

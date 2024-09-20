@@ -2,7 +2,6 @@
 resolver = "2"
 members = [
     "raptor-rs", 
-    "patronage_data_processing",
     "train-ute",
     "train-ui/src-tauri",
 ]
@@ -12,7 +11,8 @@ members = [
 #opt-level = 3
 
 [profile.dev]
-incremental = true # Compile your binary in smaller steps.
+incremental = true
+opt-level = 1
 
 [profile.release]
 codegen-units = 1 # Allows LLVM to perform better optimization.
@@ -24,3 +24,4 @@ strip = true # Ensures debug symbols are removed.
 [profile.release-with-symbols]
 inherits = "release"
 debug = true
+strip = false
