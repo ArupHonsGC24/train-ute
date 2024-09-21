@@ -1,7 +1,10 @@
-use std::io::IsTerminal;
 use std::sync::atomic::{AtomicI32, Ordering};
 use itertools::izip;
+#[cfg(feature = "progress_bar")]
 use kdam::{Spinner, par_tqdm, tqdm};
+#[cfg(feature = "progress_bar")]
+use std::io::IsTerminal;
+use either::Either;
 use rand::prelude::*;
 use raptor::journey::{JourneyError, JourneyPreferences};
 use raptor::network::{GlobalTripIndex, PathfindingCost, StopIndex, Timestamp};
@@ -13,12 +16,17 @@ pub type PopulationCount = i32;
 pub type PopulationCountAtomic = AtomicI32;
 pub type CrowdingCost = PathfindingCost;
 
+pub type SimulationProgressCallback<'a> = dyn Fn(f32, f32) + 'a;
 pub trait SimulationParams {
     fn max_train_capacity(&self) -> AgentCount;
     fn cost_fn(&self, count: PopulationCount) -> CrowdingCost;
-    // Called by the simulation to report progress (0-1).
-    fn progress_callback(&self, percent: f32);
     fn get_journey_preferences(&self) -> &JourneyPreferences;
+    fn get_num_rounds(&self) -> u16;
+    fn get_progress_callback(&self) -> Option<&SimulationProgressCallback>;
+    // Called by the simulation to report progress (0-1).
+    fn run_progress_callback(&self, total_progress: f32, round_progress: f32) {
+        self.get_progress_callback().as_ref().map(|f| f(total_progress, round_progress));
+    }
 }
 
 // Simulation notes:
@@ -28,20 +36,14 @@ pub trait SimulationParams {
 // Matsim-like replanning for a proportion of the population might also be viable.
 
 // This default simulation parameter implementation uses a simple exponential crowding cost function, and can report progress.
-pub struct DefaultSimulationParams<C: Fn(f32) = fn(f32)> {
+pub struct DefaultSimulationParams<'a> {
     pub max_train_capacity: AgentCount,
-    progress_callback: Option<C>,
-    journey_preferences: JourneyPreferences,
+    pub progress_callback: Option<Box<SimulationProgressCallback<'a>>>,
+    pub journey_preferences: JourneyPreferences,
+    pub num_rounds: u16,
 }
 
-impl<C: Fn(f32)> DefaultSimulationParams<C> {
-    pub const fn new(max_train_capacity: AgentCount, progress_callback: Option<C>, journey_preferences: JourneyPreferences) -> Self {
-        Self {
-            max_train_capacity,
-            progress_callback,
-            journey_preferences,
-        }
-    }
+impl DefaultSimulationParams<'_> {
     fn f(x: CrowdingCost) -> CrowdingCost {
         const B: CrowdingCost = 5.;
         let bx = B * x;
@@ -50,7 +52,7 @@ impl<C: Fn(f32)> DefaultSimulationParams<C> {
     }
 }
 
-impl<C: Fn(f32)> SimulationParams for DefaultSimulationParams<C> {
+impl SimulationParams for DefaultSimulationParams<'_> {
     fn max_train_capacity(&self) -> AgentCount {
         self.max_train_capacity
     }
@@ -61,18 +63,22 @@ impl<C: Fn(f32)> SimulationParams for DefaultSimulationParams<C> {
         Self::f(proportion)
     }
 
-    fn progress_callback(&self, percent: f32) {
-        self.progress_callback.as_ref().map(|f| f(percent));
-    }
-
     fn get_journey_preferences(&self) -> &JourneyPreferences {
         &self.journey_preferences
+    }
+
+    fn get_num_rounds(&self) -> u16 {
+        self.num_rounds
+    }
+
+    fn get_progress_callback(&self) -> Option<&SimulationProgressCallback> {
+        self.progress_callback.as_ref().map(|f| f.as_ref())
     }
 }
 
 pub struct SimulationStep {
     pub departure_time: Timestamp,
-    pub origin_stop: StopIndex, 
+    pub origin_stop: StopIndex,
     dest_stops: Vec<StopIndex>,
     counts: Vec<AgentCount>,
 }
@@ -160,7 +166,8 @@ fn run_simulation_round(network: &Network,
                         simulation_steps: &[SimulationStep],
                         params: &impl SimulationParams,
                         crowding_cost: Option<&[CrowdingCost]>,
-                        round_number: usize) -> SimulationRoundResult {
+                        _round_number: u16) -> SimulationRoundResult {
+    
     // Initialise agent counts to zero. To allow parallelism, we use an atomic type.
     let mut trip_stops_pop = Vec::new();
     trip_stops_pop.resize_with(network.stop_times.len(), PopulationCountAtomic::default);
@@ -175,44 +182,39 @@ fn run_simulation_round(network: &Network,
     assert_eq!(trip_stops_pop.len(), crowding_cost.len());
 
     let journey_preferences = params.get_journey_preferences();
-    let spin = Spinner::new(
-        &[
-            "▁▂▃",
-            "▂▃▄",
-            "▃▄▅",
-            "▄▅▆",
-            "▅▆▇",
-            "▆▇█",
-            "▇█▇",
-            "█▇▆",
-            "▇▆▅",
-            "▆▅▄",
-            "▅▄▃",
-            "▄▃▂",
-            "▃▂▁",
-        ],
-        30.0,
-        1.0,
-    );
-    let agent_journeys = par_tqdm!(
-        simulation_steps.par_iter(),
-        desc = "Simulation Steps", 
-        position = (round_number + 1) as u16,
-        animation = kdam::Animation::FillUp,
-        spinner = spin
-    )
+
+    let step_iterator = simulation_steps.par_iter();
+
+    #[cfg(feature = "progress_bar")]
+    let step_iterator = {
+        let spin = Spinner::new(
+            &["▁▂▃", "▂▃▄", "▃▄▅", "▄▅▆", "▅▆▇", "▆▇█", "▇█▇", "█▇▆", "▇▆▅", "▆▅▄", "▅▄▃", "▄▃▂", "▃▂▁"],
+            30.0,
+            1.0,
+        );
+        par_tqdm!(
+            step_iterator,
+            desc = "Simulation Steps", 
+            position = _round_number + 1,
+            animation = kdam::Animation::FillUp,
+            spinner = spin,
+            bar_format = "{desc}{percentage:3.0}%|{animation}|{spinner} {count}/{total} [{elapsed}<{remaining}, {rate:.2}{unit}/s{postfix}]"
+        )
+    };
+
+    let agent_journeys = step_iterator
         .enumerate()
-        .map(|(sim_step_idx, sim_step)| {
+        .flat_map_iter(|(sim_step_idx, sim_step)| {
             let sim_step_idx = sim_step_idx as u32;
             if sim_step.count() == 0 {
                 // Ignore zero-count agents.
-                return (0..sim_step.dest_stops.len() as u32).map(|journey_idx| {
+                return Either::Left((0..sim_step.dest_stops.len() as u32).map(move |journey_idx| {
                     AgentJourneyResult {
                         sim_step_idx,
                         journey_idx,
                         result: Err(JourneyError::NoJourneyFound),
                     }
-                }).collect::<Vec<_>>();
+                }));
             }
 
             //let journey = raptor::raptor_query(network, sim_step.origin_stop, sim_step.departure_time, sim_step.dest_stop);
@@ -221,10 +223,13 @@ fn run_simulation_round(network: &Network,
                                                    sim_step.departure_time,
                                                    &sim_step.dest_stops,
                                                    crowding_cost,
-                                                   journey_preferences);
+                                                   &journey_preferences);
 
-            izip!(0..journeys.len() as u32, journeys.into_iter(), &sim_step.counts, &sim_step.dest_stops)
-                .map(|(journey_idx, journey, &count, &dest_stop)| {
+            // Bind to reference so we can use in the move closure.
+            let trip_stops_pop = &trip_stops_pop;
+            Either::Right(
+                izip!(0..journeys.len() as u32, journeys.into_iter(), &sim_step.counts, &sim_step.dest_stops)
+                .map(move |(journey_idx, journey, &count, &dest_stop)| {
                     let journey = match journey {
                         Ok(journey) => journey,
                         Err(err) => return AgentJourneyResult {
@@ -291,8 +296,8 @@ fn run_simulation_round(network: &Network,
                             num_transfers: (journey.legs.len() - 1) as u8,
                         }),
                     }
-                }).collect::<Vec<_>>()
-        }).flatten().collect::<Vec<_>>();
+                }))
+        }).collect::<Vec<_>>();
 
     let mut trip_stops_cost = vec![0 as CrowdingCost; network.stop_times.len()];
 
@@ -328,20 +333,27 @@ fn run_simulation_round(network: &Network,
 
 // Const generic parameter P switched between normal (false) and prefix-sum (true) simulation.
 pub fn run_simulation(network: &Network, simulation_steps: &[SimulationStep], params: &impl SimulationParams) -> SimulationResult {
-    fn handle_io_error<T>(result: std::io::Result<T>) {
-        if let Err(err) = result {
-            eprintln!("IO error: {err}");
+    #[cfg(feature = "progress_bar")]
+    {
+        fn handle_io_error<T>(result: std::io::Result<T>) {
+            if let Err(err) = result {
+                eprintln!("IO error: {err}");
+            }
         }
+        
+        kdam::term::init(std::io::stderr().is_terminal());
+        handle_io_error(kdam::term::hide_cursor());
     }
 
-    kdam::term::init(std::io::stderr().is_terminal());
-    handle_io_error(kdam::term::hide_cursor());
+    let num_rounds = params.get_num_rounds();
+    let mut simulation_rounds = Vec::with_capacity(num_rounds as usize);
 
-    let num_rounds = 3usize;
-    let mut simulation_rounds = Vec::with_capacity(num_rounds);
+    let round_iterator = (0..num_rounds).into_iter();
 
-    let start = std::time::Instant::now();
-    for round_number in tqdm!(0..num_rounds, desc="Simulation Rounds", position = 0) {
+    #[cfg(feature = "progress_bar")]
+    let round_iterator = tqdm!(round_iterator, desc="Simulation Rounds", position = 0, animation = "ascii");
+
+    for round_number in round_iterator {
         simulation_rounds.push(
             run_simulation_round(network,
                                  simulation_steps,
@@ -351,7 +363,6 @@ pub fn run_simulation(network: &Network, simulation_steps: &[SimulationStep], pa
             )
         );
     }
-    println!("Simulation took: {:?}", start.elapsed());
 
     // Use the population count of the last round as the final population count.
     let last_simulation_round = simulation_rounds.last_mut().unwrap();

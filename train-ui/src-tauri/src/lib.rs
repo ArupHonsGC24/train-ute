@@ -1,13 +1,12 @@
 use chrono::NaiveDate;
 use gtfs_structures::{Gtfs, GtfsReader};
+use raptor::journey::JourneyPreferences;
 use raptor::Network;
 use std::fs::File;
 use std::io::Cursor;
-use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::{ipc, AppHandle, Emitter, State};
 use tauri_plugin_dialog::{DialogExt, FilePath};
-use raptor::journey::JourneyPreferences;
 use train_ute::{data_export, data_import, simulation};
 
 #[derive(Debug, thiserror::Error)]
@@ -22,8 +21,6 @@ enum CmdError {
     PrerequisiteUnsatisfied(&'static str),
     #[error("Path conversion error: {0}.")]
     PathConversion(FilePath),
-    #[error("Invalid filename in filepath: {0}.")]
-    InvalidFilename(PathBuf),
     #[error("Mutex poisoned.")]
     MutexPoisoned,
     #[error("IO error: {0}.")]
@@ -178,23 +175,31 @@ async fn patronage_data_import(app: AppHandle, state: State<'_, AppState>) -> Cm
 
     app_data.sim_steps = Some(data_import::build_simulation_steps_from_patronage_data(datafile, network)?);
 
+    println!();
+
     Ok(())
 }
 
 #[tauri::command]
-async fn run_simulation(app: AppHandle, state: State<'_, AppState>) -> CmdResult<()> {
+async fn run_simulation(num_rounds: u16, app: AppHandle, state: State<'_, AppState>) -> CmdResult<()> {
     let mut app_data = state.data.lock()?;
 
     let network = app_data.get_network()?;
     let simulation_steps = app_data.get_sim_steps()?;
 
-    let params = simulation::DefaultSimulationParams::new(
-        794,
-        Some(|progress| {
-            app.emit("simulation-progress", progress).unwrap();
-        }),
-        JourneyPreferences::default(),
-    );
+    let params = simulation::DefaultSimulationParams {
+        max_train_capacity: 794,
+        progress_callback: Some(Box::new(|total_progress, round_progress| {
+            app.emit("simulation-total-progress", total_progress).unwrap_or_else(|e| {
+                println!("Error emitting total progress: {}", e);
+            });
+            app.emit("simulation-round-progress", round_progress).unwrap_or_else(|e| {
+                println!("Error emitting round progress: {}", e);
+            });
+        })),
+        journey_preferences: JourneyPreferences::default(),
+        num_rounds
+    };
 
     let sim_result = Some(simulation::run_simulation(network, &simulation_steps, &params));
 
@@ -209,42 +214,44 @@ async fn run_simulation(app: AppHandle, state: State<'_, AppState>) -> CmdResult
 }
 
 #[tauri::command]
-async fn export_results(app: AppHandle, state: State<'_, AppState>) -> CmdResult<()> {
+async fn export_counts(app: AppHandle, state: State<'_, AppState>) -> CmdResult<()> {
     let app_data = state.data.lock()?;
 
     let network = app_data.get_network()?;
     let sim_result = app_data.get_sim_result()?;
 
-    // TODO: Separate dialogs for each export type?
     let Some(filepath) = app.dialog()
                             .file()
-                            .set_file_name("result")
+                            .set_file_name("agent_counts")
                             .add_filter("Parquet", PARQUET_FILTER)
                             .blocking_save_file() else {
         // User cancelled.
         return Ok(());
     };
 
-    // TODO: format with rustfmt.
     let filepath = filepath.as_path().ok_or(CmdError::PathConversion(filepath.clone()))?;
-    let filename = filepath.file_stem()
-                           .ok_or(CmdError::InvalidFilename(filepath.to_owned()))?
-        .to_str()
-        .ok_or(CmdError::InvalidFilename(filepath.to_owned()))?;
+    data_export::export_agent_counts(filepath, network, sim_result)?;
 
-    println!("{filename}");
-    println!("{}", filepath.with_file_name(format!("{filename}_counts")).display());
+    Ok(())
+}
+#[tauri::command]
+async fn export_journeys(app: AppHandle, state: State<'_, AppState>) -> CmdResult<()> {
+    let app_data = state.data.lock()?;
 
-    println!("Exporting agent counts to: {}", filepath.with_file_name(format!("{filename}_counts")).display());
-    data_export::export_agent_counts(&filepath.with_file_name(format!("{filename}_counts")), network, sim_result)?;
+    let network = app_data.get_network()?;
+    let sim_result = app_data.get_sim_result()?;
 
-    println!("Exporting agent journeys to: {}", filepath.with_file_name(format!("{filename}_journeys")).display());
-    data_export::export_agent_journeys(
-        File::create(
-            filepath.with_file_name(&format!("{filename}_journeys")).with_extension("parquet")
-        )?,
-        network,
-        sim_result)?;
+    let Some(filepath) = app.dialog()
+                            .file()
+                            .set_file_name("journeys")
+                            .add_filter("Parquet", PARQUET_FILTER)
+                            .blocking_save_file() else {
+        // User cancelled.
+        return Ok(());
+    };
+
+    let filepath = filepath.as_path().ok_or(CmdError::PathConversion(filepath.clone()))?;
+    data_export::export_agent_journeys(File::create(filepath.with_extension("parquet"))?, network, sim_result)?;
 
     Ok(())
 }
@@ -270,7 +277,8 @@ pub fn run() {
             gen_network, 
             run_simulation, 
             patronage_data_import, 
-            export_results, 
+            export_counts, 
+            export_journeys, 
             get_trip_data, 
             get_path_data
         ])

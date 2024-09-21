@@ -2,7 +2,7 @@ use std::fs;
 use std::fs::File;
 use std::path::Path;
 use raptor::journey::JourneyPreferences;
-use train_ute::simulation::DefaultSimulationParams;
+use train_ute::simulation::SimulationParams;
 use train_ute::{data_export, data_import, simulation};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -13,7 +13,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     network.print_stats();
 
     // Set up simulation.
-    let params: DefaultSimulationParams = DefaultSimulationParams::new(
+    let params: SimulationParams = SimulationParams::new(
         // From VicSig: X'Trapolis 3-car has 264 seated, 133 standing. A 6-car has 794 in total.
         // Crush capacity is 1394, but that's a bit mean.
         // https://vicsig.net/suburban/train/X'Trapolis

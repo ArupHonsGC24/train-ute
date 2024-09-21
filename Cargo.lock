@@ -1510,6 +1510,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "formatx"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "db0f0c49aba98a3b2578315766960bd242885ff672fd62610c5557cd6c6efe03"
+
+[[package]]
 name = "futf"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2337,6 +2343,7 @@ version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "526586ea01a9a132b5f8d3a60f6d6b41b411550236f5ee057795f20b37316957"
 dependencies = [
+ "formatx",
  "rayon",
  "terminal_size",
  "windows-sys 0.52.0",
@@ -4926,6 +4933,7 @@ dependencies = [
  "criterion",
  "csv",
  "dev_utils",
+ "either",
  "gtfs-structures",
  "itertools 0.13.0",
  "kdam",

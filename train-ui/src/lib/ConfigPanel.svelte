@@ -3,7 +3,9 @@
   import { callBackend, callBackendWithWaitCursor, runWithWaitCursor } from "./utilities";
   import Button from "./Button.svelte";
 
-  let dispatch = createEventDispatcher();
+  let dispatch = createEventDispatcher<{
+    "simulation-finished": void;
+  }>();
 
   // Binding for the file input property.
   let inputFiles: FileList | null = null;
@@ -35,6 +37,7 @@
           console.log("Allowed date range:", allowedDateRange);
           dateInput.min = allowedDateRange.min;
           dateInput.max = allowedDateRange.max;
+          invalidateSimulation();
         } else {
           alert("Failed to load GTFS. Please try again.");
           allowedDateRange = undefined;
@@ -50,26 +53,36 @@
   }
 
   let modelDate = "2024-05-10";
-  // TODO: invalidate on different date.
-  let dataImportDisabled = true;
-  let runSimulationDisabled = true;
-  let exportResultsDisabled = true;
+
+  let numRounds = 3;
+  
+  let networkValid = false;
+  let patronageDataValid = false;
+  let simulationResultsValid = false;
 
   async function generateNetwork() {
     await callBackendWithWaitCursor("gen_network", { modelDate });
-    dataImportDisabled = false;
+    networkValid = true;
   }
 
   async function patronageDataImport() {
     await callBackendWithWaitCursor("patronage_data_import");
-    runSimulationDisabled = false;
+    patronageDataValid = true;
   }
 
   async function runSimulation() {
-    await callBackendWithWaitCursor("run_simulation");
-    exportResultsDisabled = false;
+    await callBackendWithWaitCursor("run_simulation", { numRounds });
+    simulationResultsValid = true;
     dispatch("simulation-finished");
   }
+
+  function invalidateSimulation() {
+    // Invalidate the network and patronage data when the date changes.
+    networkValid = false;
+    patronageDataValid = false;
+    simulationResultsValid = false;
+  }
+
 
 </script>
 
@@ -89,7 +102,6 @@
 
   <div class="cfg-label">
     <label for="model-date">Date to Model:</label>
-    <!--TODO: Handle case of date being changed when network is already generated. Should invalidate on different date-->
     <input
       type="date"
       id="model-date"
@@ -97,15 +109,10 @@
       disabled={allowedDateRange === undefined}
       bind:this={dateInput}
       bind:value={modelDate}
+      on:change={invalidateSimulation}
     />
   </div>
 
-  <!--
-    <div class="network-buttons">
-      <Button text="Save Network to Disk" command="save_network" class="cfg-style" />
-      <Button text="Load Network from Disk" command="load_network" class="cfg-style" />
-    </div>
-  -->
 
   <Button
     text="Generate Network"
@@ -118,25 +125,48 @@
   <Button
     text="Patronage Data Import"
     class="cfg-style"
-    disabled={dataImportDisabled}
+    disabled={!networkValid}
     on:click={patronageDataImport}
   />
+  
+  <div class="cfg-label">
+    <label for="round-num"># of Rounds:</label>
+    <input 
+      type="range"
+      id="round-num"
+      min="1"
+      max="10"
+      class="cfg-style cfg-input"
+      disabled={!patronageDataValid}
+      bind:value={numRounds}
+    />
+    <span>{numRounds}</span>
+  </div>
 
   <Button
     text="Run Simulation"
     class="cfg-style"
-    disabled={runSimulationDisabled}
+    disabled={!patronageDataValid}
     disabledTooltip="Network must be generated."
     on:click={runSimulation}
   />
 
-  <Button
-    text="Export Results"
-    class="cfg-style"
-    disabled={exportResultsDisabled}
-    disabledTooltip="Run simulation first."
-    on:click={() => callBackendWithWaitCursor("export_results")}
-  />
+  <div class="cfg-export">
+    <Button
+      text="Export Counts"
+      class="cfg-style"
+      disabled={!simulationResultsValid}
+      disabledTooltip="Run simulation first."
+      on:click={() => callBackendWithWaitCursor("export_counts")}
+    />
+    <Button
+      text="Export Journeys"
+      class="cfg-style"
+      disabled={!simulationResultsValid}
+      disabledTooltip="Run simulation first."
+      on:click={() => callBackendWithWaitCursor("export_journeys")}
+    />
+  </div>
 </div>
 
 <style>
@@ -187,11 +217,9 @@
     color: #a28a6f;
   }
 
-  /*
-  .network-buttons {
+  .cfg-export {
     display: flex;
     width: 100%;
-    gap: 10px;
+    gap: 20px;
   }
-  */
 </style>

@@ -3,14 +3,14 @@ use std::hint::black_box;
 
 use dev_utils::{build_example_network, load_example_gtfs};
 use raptor::journey::JourneyPreferences;
-use train_ute::simulation::{gen_simulation_steps, run_simulation, DefaultSimulationParams};
+use train_ute::simulation::{gen_simulation_steps, run_simulation, SimulationParams};
 
 fn train_ute_benchmark(c: &mut Criterion) {
     let gtfs = load_example_gtfs().unwrap();
     let network = build_example_network(&gtfs);
 
-    let params: DefaultSimulationParams = DefaultSimulationParams::new(794, None,
-        JourneyPreferences::default());
+    let params: SimulationParams = SimulationParams::new(794, None,
+                                                         JourneyPreferences::default());
 
     let num_threads = 16;
 
