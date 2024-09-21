@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicI32, Ordering};
 use itertools::izip;
 #[cfg(feature = "progress_bar")]
-use kdam::{Spinner, par_tqdm, tqdm};
+use kdam::{par_tqdm, tqdm};
 #[cfg(feature = "progress_bar")]
 use std::io::IsTerminal;
 use either::Either;
@@ -16,12 +16,13 @@ pub type PopulationCount = i32;
 pub type PopulationCountAtomic = AtomicI32;
 pub type CrowdingCost = PathfindingCost;
 
-pub type SimulationProgressCallback<'a> = dyn Fn(f32, f32) + 'a;
-pub trait SimulationParams {
+pub type SimulationProgressCallback<'a> = dyn Fn(f32, f32) + Sync + Send + 'a;
+pub trait SimulationParams: Sync {
     fn max_train_capacity(&self) -> AgentCount;
     fn cost_fn(&self, count: PopulationCount) -> CrowdingCost;
     fn get_journey_preferences(&self) -> &JourneyPreferences;
     fn get_num_rounds(&self) -> u16;
+    fn get_bag_size(&self) -> usize;
     fn get_progress_callback(&self) -> Option<&SimulationProgressCallback>;
     // Called by the simulation to report progress (0-1).
     fn run_progress_callback(&self, total_progress: f32, round_progress: f32) {
@@ -41,6 +42,7 @@ pub struct DefaultSimulationParams<'a> {
     pub progress_callback: Option<Box<SimulationProgressCallback<'a>>>,
     pub journey_preferences: JourneyPreferences,
     pub num_rounds: u16,
+    pub bag_size: usize,
 }
 
 impl DefaultSimulationParams<'_> {
@@ -71,6 +73,10 @@ impl SimulationParams for DefaultSimulationParams<'_> {
         self.num_rounds
     }
 
+    fn get_bag_size(&self) -> usize {
+        self.bag_size
+    }
+
     fn get_progress_callback(&self) -> Option<&SimulationProgressCallback> {
         self.progress_callback.as_ref().map(|f| f.as_ref())
     }
@@ -91,6 +97,9 @@ impl SimulationStep {
             dest_stops: Vec::new(),
             counts: Vec::new(),
         }
+    }
+    pub fn len(&self) -> usize {
+        self.dest_stops.len()
     }
     pub fn count(&self) -> AgentCount {
         self.counts.iter().sum()
@@ -166,8 +175,7 @@ fn run_simulation_round(network: &Network,
                         simulation_steps: &[SimulationStep],
                         params: &impl SimulationParams,
                         crowding_cost: Option<&[CrowdingCost]>,
-                        _round_number: u16) -> SimulationRoundResult {
-    
+                        round_number: u16) -> SimulationRoundResult {
     // Initialise agent counts to zero. To allow parallelism, we use an atomic type.
     let mut trip_stops_pop = Vec::new();
     trip_stops_pop.resize_with(network.stop_times.len(), PopulationCountAtomic::default);
@@ -183,28 +191,33 @@ fn run_simulation_round(network: &Network,
 
     let journey_preferences = params.get_journey_preferences();
 
+    let num_agents = simulation_steps.iter().fold(0, |acc, step| acc + step.len());
+
     let step_iterator = simulation_steps.par_iter();
 
     #[cfg(feature = "progress_bar")]
     let step_iterator = {
-        let spin = Spinner::new(
-            &["▁▂▃", "▂▃▄", "▃▄▅", "▄▅▆", "▅▆▇", "▆▇█", "▇█▇", "█▇▆", "▇▆▅", "▆▅▄", "▅▄▃", "▄▃▂", "▃▂▁"],
-            30.0,
-            1.0,
-        );
         par_tqdm!(
             step_iterator,
-            desc = "Simulation Steps", 
-            position = _round_number + 1,
-            animation = kdam::Animation::FillUp,
-            spinner = spin,
-            bar_format = "{desc}{percentage:3.0}%|{animation}|{spinner} {count}/{total} [{elapsed}<{remaining}, {rate:.2}{unit}/s{postfix}]"
+            desc = " Simulation Steps", 
+            position = round_number + 1,
+            animation = kdam::Animation::FillUp
         )
     };
 
-    let agent_journeys = step_iterator
+    let inv_num_rounds = 1. / params.get_num_rounds() as f32;
+    let total_progress = round_number as f32 * inv_num_rounds;
+    let inv_sim_step_len = 1. / simulation_steps.len() as f32;
+    // Use a bag size of 1 for the first round, because there's no crowding data yet.
+    let bag_size = if round_number == 0 { 1 } else { params.get_bag_size().clamp(2, 5) };
+
+    let mut agent_journeys = Vec::with_capacity(num_agents);
+    agent_journeys.par_extend(step_iterator
         .enumerate()
         .flat_map_iter(|(sim_step_idx, sim_step)| {
+            let round_progress = sim_step_idx as f32 * inv_sim_step_len;
+            params.run_progress_callback(total_progress + round_progress * inv_num_rounds, round_progress);
+
             let sim_step_idx = sim_step_idx as u32;
             if sim_step.count() == 0 {
                 // Ignore zero-count agents.
@@ -217,87 +230,100 @@ fn run_simulation_round(network: &Network,
                 }));
             }
 
-            //let journey = raptor::raptor_query(network, sim_step.origin_stop, sim_step.departure_time, sim_step.dest_stop);
-            let journeys = raptor::mc_raptor_query(network,
-                                                   sim_step.origin_stop,
-                                                   sim_step.departure_time,
-                                                   &sim_step.dest_stops,
-                                                   crowding_cost,
-                                                   &journey_preferences);
+            macro_rules! mc_raptor {
+                ($bag_size:expr) => {
+                    raptor::mc_raptor_query::<$bag_size>(network,
+                                                         sim_step.origin_stop,
+                                                         sim_step.departure_time,
+                                                         &sim_step.dest_stops,
+                                                         crowding_cost,
+                                                         &journey_preferences)
+                };
+            }
+
+            let journeys = match bag_size {
+                // TODO: Implement bag size 1 with normal raptor (extent to multi-dest).
+                1 => mc_raptor!(2),
+                2 => mc_raptor!(2),
+                3 => mc_raptor!(3),
+                4 => mc_raptor!(4),
+                5 => mc_raptor!(5),
+                _ => unreachable!(),
+            };
 
             // Bind to reference so we can use in the move closure.
             let trip_stops_pop = &trip_stops_pop;
             Either::Right(
                 izip!(0..journeys.len() as u32, journeys.into_iter(), &sim_step.counts, &sim_step.dest_stops)
-                .map(move |(journey_idx, journey, &count, &dest_stop)| {
-                    let journey = match journey {
-                        Ok(journey) => journey,
-                        Err(err) => return AgentJourneyResult {
-                            sim_step_idx,
-                            journey_idx,
-                            result: Err(err),
-                        },
-                    };
-
-                    if journey.legs.is_empty() {
-                        // Ignore empty journeys.
-                        return AgentJourneyResult {
-                            sim_step_idx,
-                            journey_idx,
-                            result: Err(JourneyError::NoJourneyFound),
+                    .map(move |(journey_idx, journey, &count, &dest_stop)| {
+                        let journey = match journey {
+                            Ok(journey) => journey,
+                            Err(err) => return AgentJourneyResult {
+                                sim_step_idx,
+                                journey_idx,
+                                result: Err(err),
+                            },
                         };
-                    }
 
-                    // Because journey.legs.len() > 0, these are guaranteed to be set in the loop;
-                    let mut origin_trip = GlobalTripIndex::default();
-                    let mut dest_trip = GlobalTripIndex::default();
-
-                    for (i, leg) in journey.legs.iter().enumerate() {
-                        let route = &network.routes[leg.trip.route_idx as usize];
-                        let trip = &trip_stops_pop[route.get_trip_range(leg.trip.trip_order as usize)];
-
-                        // Record first and last trip.
-                        if i == 0 {
-                            origin_trip = leg.trip;
-                        }
-                        if i == journey.legs.len() - 1 {
-                            dest_trip = leg.trip;
+                        if journey.legs.is_empty() {
+                            // Ignore empty journeys.
+                            return AgentJourneyResult {
+                                sim_step_idx,
+                                journey_idx,
+                                result: Err(JourneyError::NoJourneyFound),
+                            };
                         }
 
-                        let count = count as PopulationCount;
-                        let boarded_stop_order = leg.boarded_stop_order as usize;
-                        let arrival_stop_order = leg.arrival_stop_order as usize;
-                        // Add one agent to this span of trip stops.
-                        trip[boarded_stop_order].fetch_add(count, Ordering::Relaxed);
-                        // Remove agent at stop (for inclusive-exclusive range).
-                        trip[arrival_stop_order].fetch_sub(count, Ordering::Relaxed);
+                        // Because journey.legs.len() > 0, these are guaranteed to be set in the loop;
+                        let mut origin_trip = GlobalTripIndex::default();
+                        let mut dest_trip = GlobalTripIndex::default();
 
-                        // Non-prefix-sum version.
-                        //{
-                        //    assert!(boarded_stop_order < arrival_stop_order, "{boarded_stop_order} < {arrival_stop_order}")
-                        //    // Iterate over all stops in the trip, adding the agent count.
-                        //    for i in boarded_stop_order..arrival_stop_order {
-                        //        trip[i].fetch_add(count, Ordering::Relaxed);
-                        //    }
-                        //}
-                    }
+                        for (i, leg) in journey.legs.iter().enumerate() {
+                            let route = &network.routes[leg.trip.route_idx as usize];
+                            let trip = &trip_stops_pop[route.get_trip_range(leg.trip.trip_order as usize)];
 
-                    AgentJourneyResult {
-                        sim_step_idx,
-                        journey_idx,
-                        result: Ok(AgentJourney {
-                            origin_stop: sim_step.origin_stop,
-                            origin_trip,
-                            dest_stop,
-                            dest_trip,
-                            count,
-                            duration: journey.duration,
-                            crowding_cost: 0., // TODO: calculate crowding cost.
-                            num_transfers: (journey.legs.len() - 1) as u8,
-                        }),
-                    }
-                }))
-        }).collect::<Vec<_>>();
+                            // Record first and last trip.
+                            if i == 0 {
+                                origin_trip = leg.trip;
+                            }
+                            if i == journey.legs.len() - 1 {
+                                dest_trip = leg.trip;
+                            }
+
+                            let count = count as PopulationCount;
+                            let boarded_stop_order = leg.boarded_stop_order as usize;
+                            let arrival_stop_order = leg.arrival_stop_order as usize;
+                            // Add one agent to this span of trip stops.
+                            trip[boarded_stop_order].fetch_add(count, Ordering::Relaxed);
+                            // Remove agent at stop (for inclusive-exclusive range).
+                            trip[arrival_stop_order].fetch_sub(count, Ordering::Relaxed);
+
+                            // Non-prefix-sum version.
+                            //{
+                            //    assert!(boarded_stop_order < arrival_stop_order, "{boarded_stop_order} < {arrival_stop_order}")
+                            //    // Iterate over all stops in the trip, adding the agent count.
+                            //    for i in boarded_stop_order..arrival_stop_order {
+                            //        trip[i].fetch_add(count, Ordering::Relaxed);
+                            //    }
+                            //}
+                        }
+
+                        AgentJourneyResult {
+                            sim_step_idx,
+                            journey_idx,
+                            result: Ok(AgentJourney {
+                                origin_stop: sim_step.origin_stop,
+                                origin_trip,
+                                dest_stop,
+                                dest_trip,
+                                count,
+                                duration: journey.duration,
+                                crowding_cost: 0., // TODO: calculate crowding cost.
+                                num_transfers: (journey.legs.len() - 1) as u8,
+                            }),
+                        }
+                    }))
+        }));
 
     let mut trip_stops_cost = vec![0 as CrowdingCost; network.stop_times.len()];
 
@@ -340,7 +366,7 @@ pub fn run_simulation(network: &Network, simulation_steps: &[SimulationStep], pa
                 eprintln!("IO error: {err}");
             }
         }
-        
+
         kdam::term::init(std::io::stderr().is_terminal());
         handle_io_error(kdam::term::hide_cursor());
     }
@@ -351,7 +377,7 @@ pub fn run_simulation(network: &Network, simulation_steps: &[SimulationStep], pa
     let round_iterator = (0..num_rounds).into_iter();
 
     #[cfg(feature = "progress_bar")]
-    let round_iterator = tqdm!(round_iterator, desc="Simulation Rounds", position = 0, animation = "ascii");
+    let round_iterator = tqdm!(round_iterator, desc="Simulation Rounds", position = 0);
 
     for round_number in round_iterator {
         simulation_rounds.push(

@@ -13,7 +13,7 @@
       {
         "title": "Train Ute Model",
         "minWidth": 1200,
-        "minHeight": 650,
+        "minHeight": 700,
         "resizable": true,
         "fullscreen": false
       }

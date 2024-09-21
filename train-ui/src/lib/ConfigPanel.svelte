@@ -1,5 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher } from "svelte";
+  import { listen } from "@tauri-apps/api/event";
   import { callBackend, callBackendWithWaitCursor, runWithWaitCursor } from "./utilities";
   import Button from "./Button.svelte";
 
@@ -55,6 +56,7 @@
   let modelDate = "2024-05-10";
 
   let numRounds = 3;
+  let bagSize = 3;
   
   let networkValid = false;
   let patronageDataValid = false;
@@ -71,8 +73,12 @@
   }
 
   async function runSimulation() {
-    await callBackendWithWaitCursor("run_simulation", { numRounds });
+    let unlisten = await listen<{ total: number, round: number }>("simulation-progress", (event) => {
+      console.log("Simulation progress: %d, %d", event.payload.total, event.payload.round);
+    });
+    await callBackendWithWaitCursor("run_simulation", { numRounds, bagSize });
     simulationResultsValid = true;
+    unlisten();
     dispatch("simulation-finished");
   }
 
@@ -82,8 +88,6 @@
     patronageDataValid = false;
     simulationResultsValid = false;
   }
-
-
 </script>
 
 <div id="cfg-panel">
@@ -136,11 +140,25 @@
       id="round-num"
       min="1"
       max="10"
-      class="cfg-style cfg-input"
+      class="cfg-input"
       disabled={!patronageDataValid}
       bind:value={numRounds}
     />
     <span>{numRounds}</span>
+  </div>
+  
+  <div class="cfg-label">
+    <label for="bag-size"># Journey Options Considered:</label>
+    <input
+      type="range"
+      id="bag-size"
+      min="2"
+      max="5"
+      step="1"
+      class="cfg-input"
+      bind:value={bagSize}
+    />
+    <span>{bagSize}</span>
   </div>
 
   <Button
@@ -203,6 +221,11 @@
     flex: 2;
   }
 
+  span {
+    flex: 0.1;
+    text-align: center;
+  }
+  
   input {
     background-color: #5e503f;
     color: white;
@@ -210,6 +233,11 @@
 
   input[type="file"] {
     color-scheme: light;
+  }
+  
+  input[type="range"] {
+    flex: 1;
+    padding: 0;
   }
 
   input:disabled {
