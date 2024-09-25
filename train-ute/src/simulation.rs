@@ -318,7 +318,7 @@ fn run_simulation_round(network: &Network,
                                 dest_trip,
                                 count,
                                 duration: journey.duration,
-                                crowding_cost: 0., // TODO: calculate crowding cost.
+                                crowding_cost: journey.cost,
                                 num_transfers: (journey.legs.len() - 1) as u8,
                             }),
                         }
