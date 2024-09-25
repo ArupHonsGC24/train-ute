@@ -71,11 +71,14 @@ pub fn build_simulation_steps_from_patronage_data(reader: impl ChunkReader + 'st
     let mut station_name_map = HashMap::new();
     let mut get_stop_idx_from_name = |network: &Network, station_name: &str| -> Option<StopIndex> {
         if let Some(stop_idx) = station_name_map.get(station_name) {
-            Some(*stop_idx)
+            *stop_idx
         } else {
-            let stop_idx = network.get_stop_idx_from_name(&station_name)?;
+            let stop_idx = network.get_stop_idx_from_name(&station_name);
+            if stop_idx.is_none() {
+                eprintln!("Station not found: {station_name}");
+            }
             station_name_map.insert(station_name.to_string(), stop_idx);
-            Some(stop_idx)
+            stop_idx
         }
     };
 
@@ -105,14 +108,10 @@ pub fn build_simulation_steps_from_patronage_data(reader: impl ChunkReader + 'st
         for i in 0..batch.num_rows() {
             let origin_name = origins.value(i);
             let Some(origin_stop) = get_stop_idx_from_name(&network, origin_name) else {
-                // TODO: alert user first time?
-                eprintln!("Station not found: {origin_name}");
                 continue;
             };
             let dest_name = destinations.value(i);
             let Some(dest_stop) = get_stop_idx_from_name(&network, dest_name) else {
-                // TODO: alert user.
-                eprintln!("Station not found: {dest_name}");
                 continue;
             };
 
