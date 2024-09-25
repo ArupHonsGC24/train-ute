@@ -1,14 +1,15 @@
 use chrono::NaiveDate;
+use dev_utils::create_pool;
 use gtfs_structures::GtfsReader;
+use raptor::journey::JourneyPreferences;
+use raptor::network::Network;
 use std::fs;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 use std::time::Instant;
-use dev_utils::create_pool;
-use raptor::network::Network;
+use train_ute::simulation::{DefaultSimulationParams, SimulationResult};
 use train_ute::{data_export, simulation};
-use train_ute::simulation::{SimulationParams, SimulationResult};
 
 fn user_input(prompt: &str) -> Result<Option<String>, std::io::Error> {
     print!("{prompt}");
@@ -69,14 +70,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Set up simulation.
-    let params: SimulationParams = SimulationParams::new(
+    let params: DefaultSimulationParams = DefaultSimulationParams {
         // From VicSig: X'Trapolis 3-car has 264 seated, 133 standing. A 6-car has 794 in total.
         // Crush capacity is 1394, but that's a bit mean.
         // https://vicsig.net/suburban/train/X'Trapolis
-        794,
-        None,
-        Default::default(),
-    );
+        max_train_capacity: 794,
+        progress_callback: None,
+        journey_preferences: JourneyPreferences::default(),
+        num_rounds: 4,
+        bag_size: 5,
+    };
 
     loop {
         print!("Enter number of processors to use: ");
@@ -94,7 +97,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let num_agents = num_agents.trim().parse().unwrap();
             let simulation_steps = simulation::gen_simulation_steps(&network, Some(num_agents), Some(0));
 
-            let mut simulation_result = SimulationResult { population_count: Vec::new(), agent_journeys: Vec::new(), uncrowded_agent_journeys: Vec::new() };
+            let mut simulation_result = SimulationResult { population_count: Vec::new(), round_agent_journeys: Vec::new() };
             let simulation_start = Instant::now();
             let num_iterations = 1;
             for _ in 0..num_iterations {

@@ -1,8 +1,8 @@
+use raptor::journey::JourneyPreferences;
 use std::fs;
 use std::fs::File;
 use std::path::Path;
-use raptor::journey::JourneyPreferences;
-use train_ute::simulation::SimulationParams;
+use train_ute::simulation::DefaultSimulationParams;
 use train_ute::{data_export, data_import, simulation};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -13,14 +13,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     network.print_stats();
 
     // Set up simulation.
-    let params: SimulationParams = SimulationParams::new(
+    let params: DefaultSimulationParams = DefaultSimulationParams {
         // From VicSig: X'Trapolis 3-car has 264 seated, 133 standing. A 6-car has 794 in total.
         // Crush capacity is 1394, but that's a bit mean.
         // https://vicsig.net/suburban/train/X'Trapolis
-        794,
-        None,
-        JourneyPreferences::default(),
-    );
+        max_train_capacity: 794,
+        progress_callback: None,
+        journey_preferences: JourneyPreferences::default(),
+        num_rounds: 4,
+        bag_size: 5,
+    };
 
     let simulation_steps = data_import::build_simulation_steps_from_patronage_data(dev_utils::find_example_patronage_data()?, &network)?;
     //let simulation_steps = simulation::gen_simulation_steps(&network, Some(1000000), Some(0));
