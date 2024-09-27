@@ -73,12 +73,16 @@
   }
 
   async function runSimulation() {
-    let unlisten = await listen<{ total: number, round: number }>("simulation-progress", (event) => {
-      console.log("Simulation progress: %d, %d", event.payload.total, event.payload.round);
+    let unlisten_init = await listen<{numRounds: number, numSteps: number}>("simulation-init", (event) => {
+      console.log("Simulation init: %d rounds each with %d steps.", event.payload.numRounds, event.payload.numSteps);
     });
-    await callBackendWithWaitCursor("run_simulation", { numRounds, bagSize });
+    let unlisten_progress = await listen<{}>("simulation-progress", () => {
+      //console.log("Simulation progress 1.");
+    });
+    await callBackendWithWaitCursor("run_simulation", { numRounds, bagSize, shouldReportProgress: false });
     simulationResultsValid = true;
-    unlisten();
+    unlisten_init();
+    unlisten_progress();
     dispatch("simulation-finished");
   }
 
@@ -156,6 +160,7 @@
       max="5"
       step="1"
       class="cfg-input"
+      disabled={!patronageDataValid}
       bind:value={bagSize}
     />
     <span>{bagSize}</span>

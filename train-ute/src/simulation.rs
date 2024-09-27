@@ -16,17 +16,18 @@ pub type PopulationCount = i32;
 pub type PopulationCountAtomic = AtomicI32;
 pub type CrowdingCost = PathfindingCost;
 
-pub type SimulationProgressCallback<'a> = dyn Fn(f32, f32) + Sync + Send + 'a;
+pub type SimulationProgressCallback<'a> = dyn Fn() + Sync + Send + 'a;
 pub trait SimulationParams: Sync {
     fn max_train_capacity(&self) -> AgentCount;
     fn cost_fn(&self, count: PopulationCount) -> CrowdingCost;
     fn get_journey_preferences(&self) -> &JourneyPreferences;
     fn get_num_rounds(&self) -> u16;
     fn get_bag_size(&self) -> usize;
+    fn should_report_progress(&self) -> bool;
     fn get_progress_callback(&self) -> Option<&SimulationProgressCallback>;
     // Called by the simulation to report progress (0-1).
-    fn run_progress_callback(&self, total_progress: f32, round_progress: f32) {
-        self.get_progress_callback().as_ref().map(|f| f(total_progress, round_progress));
+    fn run_progress_callback(&self) {
+        self.get_progress_callback().map(|f| f());
     }
 }
 
@@ -43,6 +44,7 @@ pub struct DefaultSimulationParams<'a> {
     pub journey_preferences: JourneyPreferences,
     pub num_rounds: u16,
     pub bag_size: usize,
+    pub should_report_progress: bool,
 }
 
 impl DefaultSimulationParams<'_> {
@@ -75,6 +77,10 @@ impl SimulationParams for DefaultSimulationParams<'_> {
 
     fn get_bag_size(&self) -> usize {
         self.bag_size
+    }
+
+    fn should_report_progress(&self) -> bool {
+        self.should_report_progress
     }
 
     fn get_progress_callback(&self) -> Option<&SimulationProgressCallback> {
@@ -205,9 +211,6 @@ fn run_simulation_round(network: &Network,
         )
     };
 
-    let inv_num_rounds = 1. / params.get_num_rounds() as f32;
-    let total_progress = round_number as f32 * inv_num_rounds;
-    let inv_sim_step_len = 1. / simulation_steps.len() as f32;
     // Use a bag size of 1 for the first round, because there's no crowding data yet.
     let bag_size = if round_number == 0 { 1 } else { params.get_bag_size().clamp(2, 5) };
 
@@ -215,8 +218,7 @@ fn run_simulation_round(network: &Network,
     agent_journeys.par_extend(step_iterator
         .enumerate()
         .flat_map_iter(|(sim_step_idx, sim_step)| {
-            let round_progress = sim_step_idx as f32 * inv_sim_step_len;
-            params.run_progress_callback(total_progress + round_progress * inv_num_rounds, round_progress);
+            params.run_progress_callback();
 
             let sim_step_idx = sim_step_idx as u32;
             if sim_step.count() == 0 {
@@ -242,8 +244,8 @@ fn run_simulation_round(network: &Network,
             }
 
             let journeys = match bag_size {
-                // TODO: Implement bag size 1 with normal raptor (extent to multi-dest).
-                1 => mc_raptor!(2),
+                // TODO: Implement bag size 1 with normal raptor (extend to multi-dest).
+                1 => mc_raptor!(1),
                 2 => mc_raptor!(2),
                 3 => mc_raptor!(3),
                 4 => mc_raptor!(4),
@@ -360,7 +362,7 @@ fn run_simulation_round(network: &Network,
 // Const generic parameter P switched between normal (false) and prefix-sum (true) simulation.
 pub fn run_simulation(network: &Network, simulation_steps: &[SimulationStep], params: &impl SimulationParams) -> SimulationResult {
     #[cfg(feature = "progress_bar")]
-    {
+    if params.should_report_progress() {
         fn handle_io_error<T>(result: std::io::Result<T>) {
             if let Err(err) = result {
                 eprintln!("IO error: {err}");
@@ -375,11 +377,7 @@ pub fn run_simulation(network: &Network, simulation_steps: &[SimulationStep], pa
     let mut simulation_rounds = Vec::with_capacity(num_rounds as usize);
 
     let round_iterator = (0..num_rounds).into_iter();
-
-    #[cfg(feature = "progress_bar")]
-    let round_iterator = tqdm!(round_iterator, desc="Simulation Rounds", position = 0);
-
-    for round_number in round_iterator {
+    let mut run_round = |round_number| {
         simulation_rounds.push(
             run_simulation_round(network,
                                  simulation_steps,
@@ -388,6 +386,22 @@ pub fn run_simulation(network: &Network, simulation_steps: &[SimulationStep], pa
                                  round_number,
             )
         );
+    };
+
+    #[cfg(feature = "progress_bar")]
+    if params.should_report_progress() {
+        for round_number in tqdm!(round_iterator, desc = "Simulation Rounds", position = 0) {
+            run_round(round_number);
+        }
+    } else {
+        for round_number in round_iterator {
+            run_round(round_number);
+        }
+    }
+
+    #[cfg(not(feature = "progress_bar"))]
+    for round_number in round_iterator {
+        run_round(round_number);
     }
 
     // Use the population count of the last round as the final population count.

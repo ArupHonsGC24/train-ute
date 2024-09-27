@@ -5,7 +5,7 @@ use raptor::Network;
 use std::fs::File;
 use std::io::Cursor;
 use std::sync::Mutex;
-use tauri::{ipc, AppHandle, State};
+use tauri::{ipc, AppHandle, Emitter, State};
 use tauri_plugin_dialog::{DialogExt, FilePath};
 use train_ute::{data_export, data_import, simulation};
 
@@ -180,24 +180,40 @@ async fn patronage_data_import(app: AppHandle, state: State<'_, AppState>) -> Cm
     Ok(())
 }
 
+// Run emit async because it's slow?
+async fn emit_progress(app: AppHandle) {
+    app.emit("simulation-progress", ()).unwrap_or_else(|e| {
+        eprintln!("Error emitting progress event: {e}");
+    });
+}
+
 #[tauri::command]
-async fn run_simulation(num_rounds: u16, bag_size: usize, _app: AppHandle, state: State<'_, AppState>) -> CmdResult<()> {
+async fn run_simulation(num_rounds: u16, bag_size: usize, should_report_progress: bool, app: AppHandle, state: State<'_, AppState>) -> CmdResult<()> {
     let mut app_data = state.data.lock()?;
 
     let network = app_data.get_network()?;
     let simulation_steps = app_data.get_sim_steps()?;
 
+    #[derive(serde::Serialize, Clone)]
+    #[serde(rename_all = "camelCase")]
+    struct SimulationInitParams {
+        num_rounds: u16,
+        num_steps: usize,
+    }
+
+    app.emit("simulation-init", SimulationInitParams { num_rounds, num_steps: simulation_steps.len() }).unwrap_or_else(|e| {
+        eprintln!("Error emitting init event: {e}");
+    });
+
     let params = simulation::DefaultSimulationParams {
         max_train_capacity: 794,
-        progress_callback: Some(Box::new(|_total_progress, _round_progress| {
-            // TODO: This call significantly slows does the simulation, so it's commented out for now. Should use callback frequency.
-            //app.emit("simulation-progress", (total_progress as f64, round_progress as f64)).unwrap_or_else(|e| {
-            //    println!("Error emitting progress event: {e}");
-            //});
+        progress_callback: Some(Box::new(move || {
+            tauri::async_runtime::spawn(emit_progress(app.clone())); 
         })),
         journey_preferences: JourneyPreferences::default(),
         num_rounds,
         bag_size,
+        should_report_progress,
     };
 
     let sim_result = Some(simulation::run_simulation(network, &simulation_steps, &params));
