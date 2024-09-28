@@ -1,8 +1,9 @@
 <script lang="ts">
   import { createEventDispatcher } from "svelte";
-  import { listen } from "@tauri-apps/api/event";
-  import { callBackend, callBackendWithWaitCursor, runWithWaitCursor } from "./utilities";
-  import Button from "./Button.svelte";
+  import { Channel } from "@tauri-apps/api/core";
+  import { callBackend, callBackendWithWaitCursor, runWithWaitCursor } from "$lib/utilities";
+  import Button from "$lib/Button.svelte";
+  import CrowdingModelSelector, { type CrowdingModel } from "$lib/CrowdingModelSelector.svelte";
 
   let dispatch = createEventDispatcher<{
     "simulation-finished": void;
@@ -57,7 +58,8 @@
 
   let numRounds = 3;
   let bagSize = 3;
-  
+  let crowdingModel: CrowdingModel;
+
   let networkValid = false;
   let patronageDataValid = false;
   let simulationResultsValid = false;
@@ -72,17 +74,43 @@
     patronageDataValid = true;
   }
 
+  type SimulationEvent =
+    | { event: "Started"; data: { numRounds: number, numSteps: number }; }
+    | { event: "StepCompleted"; };
+
+  const onSimulationEvent = new Channel<SimulationEvent>();
+
+  onSimulationEvent.onmessage = (event) => {
+    switch (event.event) {
+      case "Started":
+        console.log("Simulation started: %d rounds each with %d steps.", event.data.numRounds, event.data.numSteps);
+        break;
+      case "StepCompleted":
+        //console.log("Simulation progress 1.");
+        break;
+    }
+  };
+
+  let simulationRunning = false;
+
   async function runSimulation() {
-    let unlisten_init = await listen<{numRounds: number, numSteps: number}>("simulation-init", (event) => {
-      console.log("Simulation init: %d rounds each with %d steps.", event.payload.numRounds, event.payload.numSteps);
-    });
-    let unlisten_progress = await listen<{}>("simulation-progress", () => {
-      //console.log("Simulation progress 1.");
-    });
-    await callBackendWithWaitCursor("run_simulation", { numRounds, bagSize, shouldReportProgress: false });
+    if (simulationRunning) {
+      return;
+    }
+    simulationRunning = true;
+    console.log("Crowding function: %s, seated: %d, standing: %d", crowdingModel.func, crowdingModel.seated, crowdingModel.standing);
+    try {
+      await callBackendWithWaitCursor("run_simulation", {
+        numRounds,
+        bagSize,
+        crowdingModel,
+        shouldReportProgress: false,
+        onSimulationEvent,
+      });
+    } finally {
+      simulationRunning = false;
+    }
     simulationResultsValid = true;
-    unlisten_init();
-    unlisten_progress();
     dispatch("simulation-finished");
   }
 
@@ -94,7 +122,7 @@
   }
 </script>
 
-<div id="cfg-panel">
+<div class="cfg-panel">
   <div class="cfg-label">
     <label for="gtfs">Load GTFS:</label>
     <input
@@ -136,10 +164,12 @@
     disabled={!networkValid}
     on:click={patronageDataImport}
   />
-  
+
+  <CrowdingModelSelector bind:crowdingModel={crowdingModel} />
+
   <div class="cfg-label">
     <label for="round-num"># of Rounds:</label>
-    <input 
+    <input
       type="range"
       id="round-num"
       min="1"
@@ -150,7 +180,7 @@
     />
     <span>{numRounds}</span>
   </div>
-  
+
   <div class="cfg-label">
     <label for="bag-size"># Journey Options Considered:</label>
     <input
@@ -169,7 +199,7 @@
   <Button
     text="Run Simulation"
     class="cfg-style"
-    disabled={!patronageDataValid}
+    disabled={!patronageDataValid || simulationRunning}
     disabledTooltip="Network must be generated."
     on:click={runSimulation}
   />
@@ -193,15 +223,15 @@
 </div>
 
 <style>
-  #cfg-panel {
+  .cfg-panel {
     display: flex;
     flex-direction: column;
     justify-content: start;
     align-items: flex-start;
-    gap: 20px;
+    gap: 15px;
   }
 
-  #cfg-panel :global(.cfg-style) {
+  .cfg-panel :global(.cfg-style) {
     width: 100%;
     padding: 10px;
     font-size: 1rem;
@@ -230,7 +260,7 @@
     flex: 0.1;
     text-align: center;
   }
-  
+
   input {
     background-color: #5e503f;
     color: white;
@@ -239,7 +269,7 @@
   input[type="file"] {
     color-scheme: light;
   }
-  
+
   input[type="range"] {
     flex: 1;
     padding: 0;

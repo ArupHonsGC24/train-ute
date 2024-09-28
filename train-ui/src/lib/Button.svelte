@@ -1,5 +1,6 @@
 <script lang="ts">
   export let text: string;
+  export let defaultTooltip = "";
   export let disabledTooltip = "";
   export let disabled = false;
 
@@ -8,7 +9,7 @@
   export { className as class };
 
   // If the button is disabled, we want to show the tooltip.
-  $: title = disabled ? disabledTooltip : "";
+  $: title = disabled ? disabledTooltip : defaultTooltip;
 </script>
 
 <button type="button" {title} class={className} {disabled} on:click>{text}</button>

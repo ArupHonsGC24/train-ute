@@ -18,7 +18,6 @@ pub type CrowdingCost = PathfindingCost;
 
 pub type SimulationProgressCallback<'a> = dyn Fn() + Sync + Send + 'a;
 pub trait SimulationParams: Sync {
-    fn max_train_capacity(&self) -> AgentCount;
     fn cost_fn(&self, count: PopulationCount) -> CrowdingCost;
     fn get_journey_preferences(&self) -> &JourneyPreferences;
     fn get_num_rounds(&self) -> u16;
@@ -37,9 +36,85 @@ pub trait SimulationParams: Sync {
 // This is like the 'El Farol Bar' problem.
 // Matsim-like replanning for a proportion of the population might also be viable.
 
+
+#[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize))]
+#[serde(rename_all = "camelCase", tag = "func", content = "params")]
+pub enum CrowdingFunc {
+    Linear,
+    Quadratic,
+    OneStep { a0: CrowdingCost, a: CrowdingCost, b: CrowdingCost },
+    TwoStep { a0: CrowdingCost, a1: CrowdingCost, a: CrowdingCost, b: CrowdingCost, c: CrowdingCost },
+}
+
+impl CrowdingFunc {
+    pub fn get_name(&self) -> &'static str {
+        match self {
+            CrowdingFunc::Linear => "linear",
+            CrowdingFunc::Quadratic => "quadratic",
+            CrowdingFunc::OneStep { .. } => "one_step",
+            CrowdingFunc::TwoStep { .. } => "two_step",
+        }
+    }
+}
+
+#[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize))]
+pub struct CrowdingModel {
+    pub func: CrowdingFunc,
+    pub seated: PopulationCount,
+    pub standing: PopulationCount,
+}
+
+impl CrowdingModel {
+    fn total_capacity(&self) -> PopulationCount {
+        self.seated + self.standing
+    }
+    fn linear(&self, x: PopulationCount) -> CrowdingCost {
+        x as CrowdingCost / self.total_capacity() as CrowdingCost
+    }
+    fn quadratic(&self, x: PopulationCount) -> CrowdingCost {
+        let total_capacity = self.total_capacity();
+        (x * x) as CrowdingCost / (total_capacity * total_capacity) as CrowdingCost
+    }
+    fn one_step(&self, x: PopulationCount, a0: CrowdingCost, a: CrowdingCost, b: CrowdingCost) -> CrowdingCost {
+        if x == 0 {
+            return 0.;
+        }
+        let x_on_s = x as CrowdingCost / self.seated as CrowdingCost;
+        let s_on_x = self.seated as CrowdingCost / x as CrowdingCost;
+
+        a0 * s_on_x + (1. - s_on_x) * a0 * (1. + b * (a * (x_on_s - 1.)).exp())
+    }
+    fn two_step(&self, x: PopulationCount, a0: CrowdingCost, a1: CrowdingCost, a: CrowdingCost, b: CrowdingCost, c: CrowdingCost) -> CrowdingCost {
+        if x == 0 {
+            return 0.;
+        }
+
+        a0 + (a1 - a0) / (1. - b * (-a * (x - self.standing) as CrowdingCost).exp()) + b * (c * (x - self.total_capacity()) as CrowdingCost).exp()
+    }
+    pub fn crowding_cost(&self, count: PopulationCount) -> CrowdingCost {
+        match &self.func {
+            CrowdingFunc::Linear => self.linear(count),
+            CrowdingFunc::Quadratic => self.quadratic(count),
+            CrowdingFunc::OneStep { a0, a, b } => self.one_step(count, *a0, *a, *b),
+            CrowdingFunc::TwoStep { a0, a1, a, b , c} => self.two_step(count, *a0, *a1, *a, *b, *c),
+        }
+    }
+    pub fn generate_csv(&self) -> String {
+        let mut csv = String::new();
+        csv.push_str(&format!("count,{}_cost\n", self.func.get_name()));
+        for count in 0..=self.total_capacity() {
+            let cost = self.crowding_cost(count);
+            csv.push_str(&format!("{count},{cost}\n"));
+        }
+        csv
+    }
+}
+
 // This default simulation parameter implementation uses a simple exponential crowding cost function, and can report progress.
 pub struct DefaultSimulationParams<'a> {
-    pub max_train_capacity: AgentCount,
+    pub crowding_model: CrowdingModel,
     pub progress_callback: Option<Box<SimulationProgressCallback<'a>>>,
     pub journey_preferences: JourneyPreferences,
     pub num_rounds: u16,
@@ -47,24 +122,10 @@ pub struct DefaultSimulationParams<'a> {
     pub should_report_progress: bool,
 }
 
-impl DefaultSimulationParams<'_> {
-    fn f(x: CrowdingCost) -> CrowdingCost {
-        const B: CrowdingCost = 5.;
-        let bx = B * x;
-        let ebx = bx.exp();
-        (ebx - 1.) / (B.exp() - 1.)
-    }
-}
-
 impl SimulationParams for DefaultSimulationParams<'_> {
-    fn max_train_capacity(&self) -> AgentCount {
-        self.max_train_capacity
-    }
-
     fn cost_fn(&self, count: PopulationCount) -> CrowdingCost {
         debug_assert!(count >= 0, "Negative population count");
-        let proportion = count as CrowdingCost / self.max_train_capacity() as CrowdingCost;
-        Self::f(proportion)
+        self.crowding_model.crowding_cost(count)
     }
 
     fn get_journey_preferences(&self) -> &JourneyPreferences {
@@ -359,7 +420,6 @@ fn run_simulation_round(network: &Network,
     }
 }
 
-// Const generic parameter P switched between normal (false) and prefix-sum (true) simulation.
 pub fn run_simulation(network: &Network, simulation_steps: &[SimulationStep], params: &impl SimulationParams) -> SimulationResult {
     #[cfg(feature = "progress_bar")]
     if params.should_report_progress() {

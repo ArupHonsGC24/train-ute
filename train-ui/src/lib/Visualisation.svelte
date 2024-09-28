@@ -18,11 +18,13 @@
   let tripData: TripData;
 
   export async function updateData() {
-    // Get data from Rust. TODO: test with promise.all.
-    let pathDataBuffer = await invoke("get_path_data") as ArrayBuffer;
-    pathData = createPathData(pathDataBuffer);
-    let tripDataBuffer = await invoke("get_trip_data") as ArrayBuffer;
-    tripData = createTripData(tripDataBuffer);
+    if ("__TAURI_INTERNALS__" in window) {
+      // Get data from Rust. TODO: test with promise.all.
+      let pathDataBuffer = await invoke("get_path_data") as ArrayBuffer;
+      pathData = createPathData(pathDataBuffer);
+      let tripDataBuffer = await invoke("get_trip_data") as ArrayBuffer;
+      tripData = createTripData(tripDataBuffer);
+    }
   }
 
   // ms
@@ -106,6 +108,7 @@
   div {
     width: 100%;
     height: 100%;
+    max-height: 500px;
     background-color: #22333b;
     border-radius: 15px;
     border: 1px solid #5e503f;

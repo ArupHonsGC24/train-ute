@@ -9,10 +9,12 @@ harness = false
 
 [features]
 progress_bar = ["kdam"]
+serde = ["serde/derive"]
 
 [dependencies]
 raptor-rs = { path = "../raptor-rs" }
 chrono = { version = "0.4.38", default-features = false, features = ["serde"] }
+serde = { version = "1.0.130", default-features = false, optional = true}
 gtfs-structures = { version = "0.41.2", default-features = false }
 parquet = { version = "53.0.0", default-features = false, features = ["arrow", "snap"] }
 arrow = { version = "53.0.0", default-features = false }

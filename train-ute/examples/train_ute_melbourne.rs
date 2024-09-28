@@ -2,7 +2,7 @@ use raptor::journey::JourneyPreferences;
 use std::fs;
 use std::fs::File;
 use std::path::Path;
-use train_ute::simulation::DefaultSimulationParams;
+use train_ute::simulation::{CrowdingFunc, CrowdingModel, DefaultSimulationParams};
 use train_ute::{data_export, data_import, simulation};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -17,11 +17,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // From VicSig: X'Trapolis 3-car has 264 seated, 133 standing. A 6-car has 794 in total.
         // Crush capacity is 1394, but that's a bit mean.
         // https://vicsig.net/suburban/train/X'Trapolis
-        max_train_capacity: 794,
+        crowding_model: CrowdingModel {
+            func: CrowdingFunc::Linear,
+            seated: 400,
+            standing: 500,
+        },
         progress_callback: None,
         journey_preferences: JourneyPreferences::default(),
         num_rounds: 4,
         bag_size: 5,
+        should_report_progress: false,
     };
 
     let simulation_steps = data_import::build_simulation_steps_from_patronage_data(dev_utils::find_example_patronage_data()?, &network)?;

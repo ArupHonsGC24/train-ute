@@ -47,12 +47,12 @@
   }
 
   #left-panel {
-    flex: 3;
+    flex: 1;
     padding: 20px;
   }
 
   #right-panel {
-    flex: 2;
+    flex: 1;
     padding: 20px 40px 20px 20px;
   }
 </style>

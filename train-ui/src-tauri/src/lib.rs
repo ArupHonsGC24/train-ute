@@ -1,12 +1,15 @@
+use std::fs::File;
+use std::io::Cursor;
+use std::sync::Mutex;
+
 use chrono::NaiveDate;
 use gtfs_structures::{Gtfs, GtfsReader};
 use raptor::journey::JourneyPreferences;
 use raptor::Network;
-use std::fs::File;
-use std::io::Cursor;
-use std::sync::Mutex;
-use tauri::{ipc, AppHandle, Emitter, State};
+use tauri::ipc::Channel;
+use tauri::{ipc, AppHandle, State};
 use tauri_plugin_dialog::{DialogExt, FilePath};
+
 use train_ute::{data_export, data_import, simulation};
 
 #[derive(Debug, thiserror::Error)]
@@ -180,35 +183,81 @@ async fn patronage_data_import(app: AppHandle, state: State<'_, AppState>) -> Cm
     Ok(())
 }
 
-// Run emit async because it's slow?
-async fn emit_progress(app: AppHandle) {
-    app.emit("simulation-progress", ()).unwrap_or_else(|e| {
-        eprintln!("Error emitting progress event: {e}");
-    });
+// Serializable versions of crowding model types.
+//#[derive(serde::Deserialize, Debug)]
+//#[serde(remote = "simulation::CrowdingFunc")]
+//enum CrowdingFuncDef {
+//    Linear,
+//    Quadratic,
+//    OneStep,
+//    TwoStep,
+//}
+//
+//#[derive(serde::Deserialize, Debug)]
+//#[serde(remote = "simulation::CrowdingModel")]
+//struct CrowdingModelDef {
+//    #[serde(with = "CrowdingFuncDef")]
+//    func: simulation::CrowdingFunc,
+//    seated: u32,
+//    standing: u32,
+//}
+//
+//#[derive(serde::Deserialize)]
+//struct CrowdingModelDeserializeHelper(#[serde(with = "CrowdingModelDef")] simulation::CrowdingModel);
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase", tag = "event", content = "data")]
+enum SimulationEvent {
+    #[serde(rename_all = "camelCase")]
+    Started {
+        num_rounds: u16,
+        num_steps: usize,
+    },
+    StepCompleted,
+    //RoundCompleted,
 }
 
 #[tauri::command]
-async fn run_simulation(num_rounds: u16, bag_size: usize, should_report_progress: bool, app: AppHandle, state: State<'_, AppState>) -> CmdResult<()> {
+async fn export_model_csv(crowding_model: simulation::CrowdingModel, app: AppHandle) -> CmdResult<()> {
+    let Some(filepath) = app.dialog()
+                            .file()
+                            .set_file_name(crowding_model.func.get_name().to_owned() + "_model")
+                            .add_filter("CSV", &["csv"])
+                            .blocking_save_file() else {
+        // User cancelled.
+        return Ok(());
+    };
+
+    let csv = crowding_model.generate_csv();
+    
+    let filepath = filepath.as_path().ok_or(CmdError::PathConversion(filepath.clone()))?;
+    std::fs::write(filepath, csv)?;
+
+    Ok(())
+}
+
+#[tauri::command]
+async fn run_simulation(num_rounds: u16,
+                        bag_size: usize,
+                        crowding_model: simulation::CrowdingModel,
+                        should_report_progress: bool,
+                        on_simulation_event: Channel<SimulationEvent>,
+                        state: State<'_, AppState>) -> CmdResult<()> {
     let mut app_data = state.data.lock()?;
 
     let network = app_data.get_network()?;
     let simulation_steps = app_data.get_sim_steps()?;
 
-    #[derive(serde::Serialize, Clone)]
-    #[serde(rename_all = "camelCase")]
-    struct SimulationInitParams {
-        num_rounds: u16,
-        num_steps: usize,
-    }
-
-    app.emit("simulation-init", SimulationInitParams { num_rounds, num_steps: simulation_steps.len() }).unwrap_or_else(|e| {
-        eprintln!("Error emitting init event: {e}");
+    on_simulation_event.send(SimulationEvent::Started { num_rounds, num_steps: simulation_steps.len() }).unwrap_or_else(|e| {
+        eprintln!("Error sending init event: {e}");
     });
-
+    
     let params = simulation::DefaultSimulationParams {
-        max_train_capacity: 794,
-        progress_callback: Some(Box::new(move || {
-            tauri::async_runtime::spawn(emit_progress(app.clone())); 
+        crowding_model,
+        progress_callback: Some(Box::new(|| {
+            on_simulation_event.send(SimulationEvent::StepCompleted).unwrap_or_else(|e| {
+                eprintln!("Error sending progress event: {e}");
+            });
         })),
         journey_preferences: JourneyPreferences::default(),
         num_rounds,
@@ -290,8 +339,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             load_gtfs, 
             gen_network, 
-            run_simulation, 
             patronage_data_import, 
+            export_model_csv,
+            run_simulation, 
             export_counts, 
             export_journeys, 
             get_trip_data, 
