@@ -1,6 +1,9 @@
 #!/bin/bash
 cd -- "$(dirname "$BASH_SOURCE")" || exit
 
+# init submodules
+git submodule update --init --recursive
+
 # installs rustup
 xcode-select --install
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
