@@ -91,7 +91,7 @@ impl CrowdingModel {
             return 0.;
         }
 
-        a0 + (a1 - a0) / (1. + (a * (self.standing - x) as CrowdingCost).exp()) + b * (c * (x - self.total_capacity()) as CrowdingCost).exp()
+        a0 + (a1 - a0) / (1. + (a * (self.seated - x) as CrowdingCost).exp()) + b * (c * (x - self.total_capacity()) as CrowdingCost).exp()
     }
     pub fn crowding_cost(&self, count: PopulationCount) -> CrowdingCost {
         match &self.func {
