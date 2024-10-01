@@ -39,7 +39,7 @@ pub trait SimulationParams: Sync {
 
 #[derive(Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize))]
-#[serde(rename_all = "camelCase", tag = "func", content = "params")]
+#[cfg_attr(feature = "serde", serde(rename_all = "camelCase", tag = "func", content = "params"))]
 pub enum CrowdingFunc {
     Linear,
     Quadratic,
@@ -84,14 +84,14 @@ impl CrowdingModel {
         let x_on_s = x as CrowdingCost / self.seated as CrowdingCost;
         let s_on_x = self.seated as CrowdingCost / x as CrowdingCost;
 
-        a0 * s_on_x + (1. - s_on_x) * a0 * (1. + b * (a * (x_on_s - 1.)).exp())
+        (a0 * s_on_x + (1. - s_on_x) * a0 * (1. + b * (a * (x_on_s - 1.)).exp())).max(a0)
     }
     fn two_step(&self, x: PopulationCount, a0: CrowdingCost, a1: CrowdingCost, a: CrowdingCost, b: CrowdingCost, c: CrowdingCost) -> CrowdingCost {
         if x == 0 {
             return 0.;
         }
 
-        a0 + (a1 - a0) / (1. - b * (-a * (x - self.standing) as CrowdingCost).exp()) + b * (c * (x - self.total_capacity()) as CrowdingCost).exp()
+        a0 + (a1 - a0) / (1. + (a * (self.standing - x) as CrowdingCost).exp()) + b * (c * (x - self.total_capacity()) as CrowdingCost).exp()
     }
     pub fn crowding_cost(&self, count: PopulationCount) -> CrowdingCost {
         match &self.func {

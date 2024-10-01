@@ -18,19 +18,23 @@
   import Button from "$lib/Button.svelte";
   import { callBackend } from "$lib/utilities";
 
+
   let crowdingFuncType: CrowdingFuncType = "linear";
-  let seated = 400;
-  let standing = 500;
-  let a0 = 1.0;
+  let seated = 528;
+  let standing = 266;
+  let a0 = 0.14;
   let a1 = 1.0;
-  let a = 1.0;
-  let b = 1.0;
-  let c = 1.0;
+  let a = 1.2;
+  let b = 3.1;
+  let c = 0.0234;
   export let crowdingModel: CrowdingModel = {
     func: { func: crowdingFuncType },
     seated,
     standing,
   };
+
+  $: { a = crowdingFuncType === "oneStep" ? Math.max(a, 5.) : a; }
+  $: a_min = crowdingFuncType === "oneStep" ? 5.0 : 1.0;
 
   $: {
     let func: CrowdingFunc;
@@ -68,7 +72,7 @@
       </select>
     </div>
     <div class="cap-params">
-      <div>
+      <div class="cap-params-vert">
         <div class="param">
           <label for="S" class="cfg-label">Seated Capacity</label>
           <input type="number" id="S" min="1" bind:value={seated}>
@@ -78,7 +82,7 @@
           <input type="number" id="T" min="1" bind:value={standing}>
         </div>
       </div>
-      <div>
+      <div class="cap-params-vert">
         <div class="param">
           <label for="a0" class="cfg-label">a0:</label>
           <input type="number" id="a0" min="1" bind:value={a0} disabled={crowdingFuncType !== "oneStep" && crowdingFuncType !== "twoStep"}>
@@ -88,10 +92,10 @@
           <input type="number" id="a1" min="1" bind:value={a1} disabled={crowdingFuncType !== "twoStep"}>
         </div>
       </div>
-      <div>
+      <div class="cap-params-vert">
         <div class="param">
           <label for="a" class="cfg-label">a:</label>
-          <input type="number" id="a" min="1" bind:value={a} disabled={crowdingFuncType !== "oneStep" && crowdingFuncType !== "twoStep"}>
+          <input type="number" id="a" min={a_min} bind:value={a} disabled={crowdingFuncType !== "oneStep" && crowdingFuncType !== "twoStep"}>
         </div>
         <div class="param">
           <label for="b" class="cfg-label">b:</label>
@@ -134,6 +138,11 @@
   
   .cap-params {
     display: flex;
+    gap: 10px;
+  }
+  .cap-params-vert {
+    display: flex;
+    flex-direction: column;
     gap: 10px;
   }
 

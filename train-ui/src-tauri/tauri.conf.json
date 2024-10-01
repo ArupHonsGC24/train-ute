@@ -12,7 +12,7 @@
     "windows": [
       {
         "title": "Train Ute Model",
-        "minWidth": 1200,
+        "minWidth": 1400,
         "minHeight": 700,
         "resizable": true,
         "fullscreen": false
