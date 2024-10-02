@@ -33,13 +33,17 @@
     standing,
   };
 
-  $: { a = crowdingFuncType === "oneStep" ? Math.max(a, 5.) : a; }
-  $: a_min = crowdingFuncType === "oneStep" ? 5.0 : 1.0;
+  $: { a = crowdingFuncType === "oneStep" ? Math.max(a, 5) : a; }
+  $: a_min = crowdingFuncType === "oneStep" ? 5 : 0;
 
   $: {
     let func: CrowdingFunc;
+    let coeff_min = 0.0001;
+    function f(x: number) {
+      return Math.max(coeff_min, x);
+    }
     if (crowdingFuncType === "oneStep") {
-      func = { func: "oneStep", params: { a0, a, b } };
+      func = { func: "oneStep", params: { a0: f(a0), a: f(a), b } };
     } else if (crowdingFuncType === "twoStep") {
       func = { func: "twoStep", params: { a0, a1, a, b, c } };
     } else {
@@ -85,11 +89,11 @@
       <div class="cap-params-vert">
         <div class="param">
           <label for="a0" class="cfg-label">a0:</label>
-          <input type="number" id="a0" min="1" bind:value={a0} disabled={crowdingFuncType !== "oneStep" && crowdingFuncType !== "twoStep"}>
+          <input type="number" id="a0" min="0" bind:value={a0} disabled={crowdingFuncType !== "oneStep" && crowdingFuncType !== "twoStep"}>
         </div>
         <div class="param">
           <label for="a1" class="cfg-label">a1:</label>
-          <input type="number" id="a1" min="1" bind:value={a1} disabled={crowdingFuncType !== "twoStep"}>
+          <input type="number" id="a1" min="0" bind:value={a1} disabled={crowdingFuncType !== "twoStep"}>
         </div>
       </div>
       <div class="cap-params-vert">
@@ -99,11 +103,11 @@
         </div>
         <div class="param">
           <label for="b" class="cfg-label">b:</label>
-          <input type="number" id="b" min="1" bind:value={b} disabled={crowdingFuncType !== "oneStep" && crowdingFuncType !== "twoStep"}>
+          <input type="number" id="b" min="0" bind:value={b} disabled={crowdingFuncType !== "oneStep" && crowdingFuncType !== "twoStep"}>
         </div>
         <div class="param">
           <label for="c" class="cfg-label">c:</label>
-          <input type="number" id="c" min="1" bind:value={c} disabled={crowdingFuncType !== "twoStep"}>
+          <input type="number" id="c" min="0" bind:value={c} disabled={crowdingFuncType !== "twoStep"}>
         </div>
       </div>
     </div>

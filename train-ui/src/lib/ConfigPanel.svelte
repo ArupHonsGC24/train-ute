@@ -103,6 +103,7 @@
       await callBackendWithWaitCursor("run_simulation", {
         numRounds,
         bagSize,
+        costUtility: 1.0,
         crowdingModel,
         shouldReportProgress: false,
         onSimulationEvent,

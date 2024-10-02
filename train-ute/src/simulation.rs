@@ -23,7 +23,7 @@ pub trait SimulationParams: Sync {
     fn get_num_rounds(&self) -> u16;
     fn get_bag_size(&self) -> usize;
     fn should_report_progress(&self) -> bool;
-    fn get_progress_callback(&self) -> Option<&SimulationProgressCallback>;
+    fn get_progress_callback(&self) -> Option<&SimulationProgressCallback> { None }
     // Called by the simulation to report progress (0-1).
     fn run_progress_callback(&self) {
         self.get_progress_callback().map(|f| f());
@@ -399,6 +399,7 @@ fn run_simulation_round(network: &Network,
         let route = &network.routes[route_idx];
         for trip in 0..route.num_trips as usize {
             let trip_range = route.get_trip_range(trip);
+            let stop_times = &network.stop_times[trip_range.clone()];
             let trip = &mut trip_stops_pop[trip_range.clone()];
             let costs = &mut trip_stops_cost[trip_range];
 
@@ -407,7 +408,9 @@ fn run_simulation_round(network: &Network,
                 // Calculate prefix sums
                 trip[i + 1] += trip[i];
                 // Calculate crowding cost.
-                costs[i + 1] = params.cost_fn(trip[i + 1]);
+                let cost_per_unit_time = params.cost_fn(trip[i + 1]);
+                let connection_time = stop_times[i + 1].departure_time - stop_times[i].arrival_time;
+                costs[i + 1] = cost_per_unit_time * connection_time as CrowdingCost;
                 assert!(trip[i] >= 0);
             }
         }

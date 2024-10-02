@@ -9,8 +9,9 @@ use raptor::Network;
 use tauri::ipc::Channel;
 use tauri::{ipc, AppHandle, State};
 use tauri_plugin_dialog::{DialogExt, FilePath};
-
+use raptor::network::PathfindingCost;
 use train_ute::{data_export, data_import, simulation};
+use train_ute::simulation::CrowdingCost;
 
 #[derive(Debug, thiserror::Error)]
 enum CmdError {
@@ -239,6 +240,7 @@ async fn export_model_csv(crowding_model: simulation::CrowdingModel, app: AppHan
 #[tauri::command]
 async fn run_simulation(num_rounds: u16,
                         bag_size: usize,
+                        cost_utility: CrowdingCost,
                         crowding_model: simulation::CrowdingModel,
                         should_report_progress: bool,
                         on_simulation_event: Channel<SimulationEvent>,
@@ -251,7 +253,13 @@ async fn run_simulation(num_rounds: u16,
     on_simulation_event.send(SimulationEvent::Started { num_rounds, num_steps: simulation_steps.len() }).unwrap_or_else(|e| {
         eprintln!("Error sending init event: {e}");
     });
-    
+
+    let journey_preferences = JourneyPreferences {
+        utility_function: Box::new(move |label, start_time| {
+            (label.arrival_time - start_time) as PathfindingCost + cost_utility * label.cost
+        })
+    };
+
     let params = simulation::DefaultSimulationParams {
         crowding_model,
         progress_callback: Some(Box::new(|| {
@@ -259,7 +267,7 @@ async fn run_simulation(num_rounds: u16,
                 eprintln!("Error sending progress event: {e}");
             });
         })),
-        journey_preferences: JourneyPreferences::default(),
+        journey_preferences,
         num_rounds,
         bag_size,
         should_report_progress,
