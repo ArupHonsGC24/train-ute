@@ -116,7 +116,7 @@
       </div>
     </div>
     <Button 
-      text="Export function CSV"
+      text="Export function to CSV"
       class="cfg-style"
       defaultTooltip="Export the crowding function to a CSV file for reference."
       on:click={exportModelCSV} 

@@ -75,7 +75,7 @@ pub fn build_simulation_steps_from_patronage_data(reader: impl ChunkReader + 'st
         } else {
             let stop_idx = network.get_stop_idx_from_name(&station_name);
             if stop_idx.is_none() {
-                eprintln!("Station not found: {station_name}");
+                log::warn!("Station not found: {station_name}");
             }
             station_name_map.insert(station_name.to_string(), stop_idx);
             stop_idx

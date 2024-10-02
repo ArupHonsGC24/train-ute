@@ -207,8 +207,8 @@ pub struct SimulationResult {
 
 impl SimulationResult {
     pub fn print_stats(&self) {
-        println!("Rounds: {}", self.round_agent_journeys.len());
-        println!("Agent journeys: {}", self.round_agent_journeys.last().map(|v| v.len()).unwrap_or(0));
+        log::info!("Rounds: {}", self.round_agent_journeys.len());
+        log::info!("Agent journeys: {}", self.round_agent_journeys.last().map(|v| v.len()).unwrap_or(0));
     }
 }
 
@@ -428,7 +428,7 @@ pub fn run_simulation(network: &Network, simulation_steps: &[SimulationStep], pa
     if params.should_report_progress() {
         fn handle_io_error<T>(result: std::io::Result<T>) {
             if let Err(err) = result {
-                eprintln!("IO error: {err}");
+                log::error!("IO error: {err}");
             }
         }
 

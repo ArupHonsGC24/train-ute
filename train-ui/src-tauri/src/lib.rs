@@ -112,7 +112,7 @@ async fn load_gtfs(request: ipc::Request<'_>, state: State<'_, AppState>) -> Cmd
                 return Err(CmdError::PrerequisiteUnsatisfied("GTFS data must contain shapes."));
             }
 
-            println!("Successfully loaded GTFS data in {}ms.", gtfs.read_duration);
+            log::info!("Successfully loaded GTFS data in {}ms.", gtfs.read_duration);
             let mut app_data = state.data.lock()?;
             let date_range = DateRange {
                 // TODO: Handle empty calendar and look at calendar_dates too.
@@ -123,7 +123,7 @@ async fn load_gtfs(request: ipc::Request<'_>, state: State<'_, AppState>) -> Cmd
             Ok(date_range)
         }
         Err(e) => {
-            println!("Failed to load GTFS data: {}", e);
+            log::warn!("Failed to load GTFS data: {}", e);
             Err(e.into())
         }
     }
@@ -178,8 +178,6 @@ async fn patronage_data_import(app: AppHandle, state: State<'_, AppState>) -> Cm
     let datafile = File::open(filepath)?;
 
     app_data.sim_steps = Some(data_import::build_simulation_steps_from_patronage_data(datafile, network)?);
-
-    println!();
 
     Ok(())
 }
@@ -251,7 +249,7 @@ async fn run_simulation(num_rounds: u16,
     let simulation_steps = app_data.get_sim_steps()?;
 
     on_simulation_event.send(SimulationEvent::Started { num_rounds, num_steps: simulation_steps.len() }).unwrap_or_else(|e| {
-        eprintln!("Error sending init event: {e}");
+        log::warn!("Error sending init event: {e}");
     });
 
     let journey_preferences = JourneyPreferences {
@@ -264,7 +262,7 @@ async fn run_simulation(num_rounds: u16,
         crowding_model,
         progress_callback: Some(Box::new(|| {
             on_simulation_event.send(SimulationEvent::StepCompleted).unwrap_or_else(|e| {
-                eprintln!("Error sending progress event: {e}");
+                log::warn!("Error sending progress event: {e}");
             });
         })),
         journey_preferences,
@@ -342,6 +340,13 @@ fn get_trip_data(state: State<'_, AppState>) -> CmdResult<ipc::Response> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Set up logging.
+    let log_env = env_logger::Env::default()
+        .filter_or("TRAIN_UTE_LOG_LEVEL", "info")
+        .write_style_or("TRAIN_UTE_LOG_STYLE", "always");
+    env_logger::init_from_env(log_env);
+
+    // Run tauri.
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![

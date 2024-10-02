@@ -167,7 +167,7 @@ pub fn export_network_trips(network: &Network, simulation_result: &SimulationRes
                 let mut distance_along_shape_section = 0. as CoordType;
                 while !current_point.very_close(arr_point) {
                     if route_shape.len() <= shape_idx + 1 {
-                        println!("Warning: Shape index out of bounds for route {}, stop {}({arr_stop_order}).", network.routes[route_idx].line, network.stops[arr_stop_idx].name);
+                        log::warn!("Warning: Shape index out of bounds for route {}, stop {}({arr_stop_order}).", network.routes[route_idx].line, network.stops[arr_stop_idx].name);
                         break;
                     }
 
