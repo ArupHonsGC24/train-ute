@@ -31,7 +31,7 @@
     seated,
     standing,
   };
-  export let costUtility = 1.0;
+  export let costUtility = 0.5;
 
   $: { a = crowdingFuncType === "oneStep" ? Math.max(a, 5) : a; }
   $: a_min = crowdingFuncType === "oneStep" ? 5 : 0;

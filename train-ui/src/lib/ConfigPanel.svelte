@@ -59,7 +59,7 @@
   let numRounds = 3;
   let bagSize = 3;
   let crowdingModel: CrowdingModel;
-  let costUtility = 1.0;
+  let costUtility: number;
 
   let networkValid = false;
   let patronageDataValid = false;
