@@ -93,7 +93,7 @@
   };
 
   let simulationRunning = false;
-
+  $: simulationDisabledTooltip = simulationRunning ? "Simulation currently running." : "Generate network and import patronage data first.";
   async function runSimulation() {
     if (simulationRunning) {
       return;
@@ -202,7 +202,7 @@
     text="Run Simulation"
     class="cfg-style"
     disabled={!patronageDataValid || simulationRunning}
-    disabledTooltip="Network must be generated."
+    disabledTooltip={simulationDisabledTooltip}
     on:click={runSimulation}
   />
 
