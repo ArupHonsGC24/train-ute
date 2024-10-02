@@ -18,7 +18,6 @@
   import Button from "$lib/Button.svelte";
   import { callBackend } from "$lib/utilities";
 
-
   let crowdingFuncType: CrowdingFuncType = "linear";
   let seated = 528;
   let standing = 266;
@@ -32,6 +31,7 @@
     seated,
     standing,
   };
+  export let costUtility = 1.0;
 
   $: { a = crowdingFuncType === "oneStep" ? Math.max(a, 5) : a; }
   $: a_min = crowdingFuncType === "oneStep" ? 5 : 0;
@@ -79,35 +79,39 @@
       <div class="cap-params-vert">
         <div class="param">
           <label for="S" class="cfg-label">Seated Capacity</label>
-          <input type="number" id="S" min="1" bind:value={seated}>
+          <input type="number" id="S" min="1" step="1" bind:value={seated}>
         </div>
         <div class="param">
           <label for="T" class="cfg-label">Standing Capacity</label>
-          <input type="number" id="T" min="1" bind:value={standing}>
+          <input type="number" id="T" min="1" step="1" bind:value={standing} disabled={crowdingFuncType === "oneStep"}>
+        </div>
+        <div class="param">
+          <label for="costUtility" class="cfg-label">Cost Utility</label>
+          <input type="number" id="costUtility" min="0" step="0.1" title="Used by journey utility calculation: journey_time + cost_utility * crowding cost" bind:value={costUtility}>
         </div>
       </div>
       <div class="cap-params-vert">
         <div class="param">
           <label for="a0" class="cfg-label">a0:</label>
-          <input type="number" id="a0" min="0" bind:value={a0} disabled={crowdingFuncType !== "oneStep" && crowdingFuncType !== "twoStep"}>
+          <input type="number" id="a0" min="0" step="any" bind:value={a0} title="Seated cost" disabled={crowdingFuncType !== "oneStep" && crowdingFuncType !== "twoStep"}>
         </div>
         <div class="param">
           <label for="a1" class="cfg-label">a1:</label>
-          <input type="number" id="a1" min="0" bind:value={a1} disabled={crowdingFuncType !== "twoStep"}>
+          <input type="number" id="a1" min="0" step="any" bind:value={a1} title="Standing cost" disabled={crowdingFuncType !== "twoStep"}>
         </div>
       </div>
       <div class="cap-params-vert">
         <div class="param">
           <label for="a" class="cfg-label">a:</label>
-          <input type="number" id="a" min={a_min} bind:value={a} disabled={crowdingFuncType !== "oneStep" && crowdingFuncType !== "twoStep"}>
+          <input type="number" id="a" min={a_min} step="0.1" bind:value={a} disabled={crowdingFuncType !== "oneStep" && crowdingFuncType !== "twoStep"}>
         </div>
         <div class="param">
           <label for="b" class="cfg-label">b:</label>
-          <input type="number" id="b" min="0" bind:value={b} disabled={crowdingFuncType !== "oneStep" && crowdingFuncType !== "twoStep"}>
+          <input type="number" id="b" min="0" step="0.1" bind:value={b} disabled={crowdingFuncType !== "oneStep" && crowdingFuncType !== "twoStep"}>
         </div>
         <div class="param">
           <label for="c" class="cfg-label">c:</label>
-          <input type="number" id="c" min="0" bind:value={c} disabled={crowdingFuncType !== "twoStep"}>
+          <input type="number" id="c" min="0" step="0.001" bind:value={c} disabled={crowdingFuncType !== "twoStep"}>
         </div>
       </div>
     </div>

@@ -59,6 +59,7 @@
   let numRounds = 3;
   let bagSize = 3;
   let crowdingModel: CrowdingModel;
+  let costUtility = 1.0;
 
   let networkValid = false;
   let patronageDataValid = false;
@@ -103,7 +104,7 @@
       await callBackendWithWaitCursor("run_simulation", {
         numRounds,
         bagSize,
-        costUtility: 1.0,
+        costUtility,
         crowdingModel,
         shouldReportProgress: false,
         onSimulationEvent,
@@ -166,7 +167,7 @@
     on:click={patronageDataImport}
   />
 
-  <CrowdingModelSelector bind:crowdingModel={crowdingModel} />
+  <CrowdingModelSelector bind:crowdingModel bind:costUtility/>
 
   <div class="cfg-label">
     <label for="round-num"># of Rounds:</label>
