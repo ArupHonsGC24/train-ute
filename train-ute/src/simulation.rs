@@ -8,7 +8,7 @@ use either::Either;
 use rand::prelude::*;
 use raptor::journey::{JourneyError, JourneyPreferences};
 use raptor::network::{GlobalTripIndex, PathfindingCost, StopIndex, Timestamp};
-use raptor::Network;
+use raptor::{Leg, Network};
 use rayon::prelude::*;
 
 pub type AgentCount = u16;
@@ -183,9 +183,11 @@ pub struct AgentJourney {
     pub dest_stop: StopIndex,
     pub dest_trip: GlobalTripIndex,
     pub count: AgentCount,
+    pub start_time: Timestamp,
     pub duration: Timestamp,
     pub crowding_cost: CrowdingCost,
     pub num_transfers: u8,
+    pub legs: Vec<Leg>,
 }
 
 pub struct AgentJourneyResult {
@@ -380,9 +382,11 @@ fn run_simulation_round(network: &Network,
                                 dest_stop,
                                 dest_trip,
                                 count,
+                                start_time: sim_step.departure_time,
                                 duration: journey.duration,
                                 crowding_cost: journey.cost,
                                 num_transfers: (journey.legs.len() - 1) as u8,
+                                legs: journey.legs,
                             }),
                         }
                     }))

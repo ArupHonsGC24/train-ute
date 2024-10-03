@@ -305,15 +305,21 @@ async fn export_counts(app: AppHandle, state: State<'_, AppState>) -> CmdResult<
     Ok(())
 }
 #[tauri::command]
-async fn export_journeys(app: AppHandle, state: State<'_, AppState>) -> CmdResult<()> {
+async fn export_journeys(legs: bool, app: AppHandle, state: State<'_, AppState>) -> CmdResult<()> {
     let app_data = state.data.lock()?;
 
     let network = app_data.get_network()?;
     let sim_result = app_data.get_sim_result()?;
 
+    let filename = if legs {
+        "legs"
+    } else {
+        "journeys"
+    };
+
     let Some(filepath) = app.dialog()
                             .file()
-                            .set_file_name("journeys")
+                            .set_file_name(filename)
                             .add_filter("Parquet", PARQUET_FILTER)
                             .blocking_save_file() else {
         // User cancelled.
@@ -321,7 +327,7 @@ async fn export_journeys(app: AppHandle, state: State<'_, AppState>) -> CmdResul
     };
 
     let filepath = filepath.as_path().ok_or(CmdError::PathConversion(filepath.clone()))?;
-    data_export::export_agent_journeys(File::create(filepath.with_extension("parquet"))?, network, sim_result)?;
+    data_export::export_agent_journeys(File::create(filepath.with_extension("parquet"))?, network, sim_result, legs)?;
 
     Ok(())
 }

@@ -219,7 +219,14 @@
       class="cfg-style"
       disabled={!simulationResultsValid}
       disabledTooltip="Run simulation first."
-      on:click={() => callBackendWithWaitCursor("export_journeys")}
+      on:click={() => callBackendWithWaitCursor("export_journeys", { legs: false })}
+    />
+    <Button
+      text="Export Legs"
+      class="cfg-style"
+      disabled={!simulationResultsValid}
+      disabledTooltip="Run simulation first."
+      on:click={() => callBackendWithWaitCursor("export_journeys", { legs: true })}
     />
   </div>
 </div>
