@@ -3,7 +3,7 @@
   import { Channel } from "@tauri-apps/api/core";
   import { callBackend, callBackendWithWaitCursor, runWithWaitCursor } from "$lib/utilities";
   import Button from "$lib/Button.svelte";
-  import CrowdingModelSelector, { type CrowdingModel } from "$lib/CrowdingModelSelector.svelte";
+  import CrowdingModelSelector, { type CrowdingModel, type TripCapacity } from "$lib/CrowdingModelSelector.svelte";
 
   let dispatch = createEventDispatcher<{
     "simulation-finished": void;
@@ -58,7 +58,8 @@
 
   let numRounds = 3;
   let bagSize = 3;
-  let crowdingModel: CrowdingModel;
+  let crowdingFunc: CrowdingModel;
+  let defaultTripCapacity: TripCapacity;
   let costUtility: number;
 
   let networkValid = false;
@@ -104,7 +105,8 @@
         numRounds,
         bagSize,
         costUtility,
-        crowdingModel,
+        crowdingFunc,
+        defaultTripCapacity,
         shouldReportProgress: false,
         onSimulationEvent,
       });
@@ -171,7 +173,7 @@
     on:click={patronageDataImport}
   />
 
-  <CrowdingModelSelector bind:crowdingModel bind:costUtility/>
+  <CrowdingModelSelector bind:crowdingFunc bind:defaultTripCapacity bind:costUtility />
 
   <div class="cfg-label">
     <label for="round-num"># of Rounds:</label>

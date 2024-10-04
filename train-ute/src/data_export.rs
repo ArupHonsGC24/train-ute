@@ -13,7 +13,7 @@ use rgb::RGB8;
 use zip::write::SimpleFileOptions;
 use zip::ZipWriter;
 
-use crate::simulation::SimulationResult;
+use crate::simulation::{SimulationResult, TripCapacities};
 use crate::utils::{mix_rgb, quadratic_ease_in_out, quadratic_inv_ease_in_out};
 use raptor::journey::JourneyError;
 use raptor::network::{CoordType, NetworkPoint, Timestamp};
@@ -236,13 +236,15 @@ pub fn export_network_trips(network: &Network, simulation_result: &SimulationRes
 }
 
 // Exports the agent counts to a parquet (and csv) file.
-pub fn export_agent_counts(path: &Path, network: &Network, simulation_result: &SimulationResult) -> Result<(), DataExportError> {
+pub fn export_agent_counts(path: &Path, network: &Network, simulation_result: &SimulationResult, trip_capacities: &TripCapacities) -> Result<(), DataExportError> {
     let path = path.with_extension("parquet");
 
     // This is the utc timestamp for the midnight of the day the network represents.
     let date_timestamp = network.date.and_time(chrono::NaiveTime::MIN).and_utc().timestamp();
 
     let mut trip_ids = Vec::new();
+    let mut trip_seated = Vec::new();
+    let mut trip_standing = Vec::new();
     let mut timestamps = Vec::new(); // Unix timestamps in milliseconds.
     let mut departures = Vec::new();
     let mut departure_ids = Vec::new();
@@ -253,6 +255,7 @@ pub fn export_agent_counts(path: &Path, network: &Network, simulation_result: &S
     for route in network.routes.iter() {
         for trip in 0..route.num_trips as usize {
             let trip_id = route.trip_ids[trip].as_ref();
+            let trip_capacity = trip_capacities.get(trip_id);
             let trip_range = route.get_trip_range(trip);
 
             let stop_times_ms = network.stop_times[trip_range.clone()].iter().map(|stop_time| {
@@ -263,6 +266,8 @@ pub fn export_agent_counts(path: &Path, network: &Network, simulation_result: &S
 
             for ((&dep_stop_idx, &arr_stop_idx), time_ms, &agent_count) in izip!(stops, stop_times_ms, trip_agent_counts) {
                 trip_ids.push(trip_id);
+                trip_seated.push(trip_capacity.seated as u32);
+                trip_standing.push(trip_capacity.standing as u32);
                 timestamps.push(time_ms);
                 departures.push(network.stops[dep_stop_idx as usize].name.as_ref());
                 departure_ids.push(network.stops[dep_stop_idx as usize].id.as_ref());
@@ -277,6 +282,12 @@ pub fn export_agent_counts(path: &Path, network: &Network, simulation_result: &S
     // Set up arrow arrays.
     let trip_id_arr = Arc::new(StringArray::from(trip_ids.clone()));
     let trip_id_field = Field::new("trip_name", trip_id_arr.data_type().clone(), false);
+
+    let trip_seated_arr = Arc::new(UInt32Array::from(trip_seated.clone()));
+    let trip_seated_field = Field::new("trip_seated_capacity", trip_seated_arr.data_type().clone(), false);
+
+    let trip_standing_arr = Arc::new(UInt32Array::from(trip_standing.clone()));
+    let trip_standing_field = Field::new("trip_standing_capacity", trip_standing_arr.data_type().clone(), false);
 
     let timestamps_arr = Arc::new(TimestampMillisecondArray::from(timestamps.clone()));
     let timestamp_field = Field::new("timestamp", timestamps_arr.data_type().clone(), false);
@@ -296,9 +307,30 @@ pub fn export_agent_counts(path: &Path, network: &Network, simulation_result: &S
     let agent_counts_arr = Arc::new(UInt32Array::from(agent_counts.clone()));
     let agent_counts_field = Field::new("count", agent_counts_arr.data_type().clone(), false);
 
-    let schema = Arc::new(Schema::new(vec![trip_id_field, timestamp_field, departures_field, departure_ids_field, arrivals_field, arrival_ids_field, agent_counts_field]));
+    let schema = Arc::new(Schema::new(vec![
+        trip_id_field,
+        trip_seated_field,
+        trip_standing_field,
+        timestamp_field,
+        departures_field,
+        departure_ids_field,
+        arrivals_field,
+        arrival_ids_field,
+        agent_counts_field
+    ]));
+
     // TODO: A record batch per trip? Sort trips by earliest departure time?
-    let record_batch = arrow::record_batch::RecordBatch::try_new(schema, vec![trip_id_arr, timestamps_arr, departures_arr, departure_ids_arr, arrivals_arr, arrival_ids_arr, agent_counts_arr])?;
+    let record_batch = arrow::record_batch::RecordBatch::try_new(schema, vec![
+        trip_id_arr,
+        trip_seated_arr,
+        trip_standing_arr,
+        timestamps_arr,
+        departures_arr,
+        departure_ids_arr,
+        arrivals_arr,
+        arrival_ids_arr,
+        agent_counts_arr
+    ])?;
 
     // Write to parquet.
     {

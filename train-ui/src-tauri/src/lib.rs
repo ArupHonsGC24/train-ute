@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::fs::File;
 use std::io::Cursor;
 use std::sync::Mutex;
@@ -6,23 +5,19 @@ use std::sync::Mutex;
 use chrono::NaiveDate;
 use gtfs_structures::{Gtfs, GtfsReader};
 use raptor::journey::JourneyPreferences;
+use raptor::network::PathfindingCost;
 use raptor::Network;
 use tauri::ipc::Channel;
 use tauri::{ipc, AppHandle, State};
 use tauri_plugin_dialog::{DialogExt, FilePath};
-use raptor::network::PathfindingCost;
+use train_ute::simulation::{CrowdingCost, CrowdingFunc, TripCapacity};
+use train_ute::simulation::TripCapacities;
 use train_ute::{data_export, data_import, simulation};
-use train_ute::simulation::TripCapacity;
-use train_ute::simulation::CrowdingCost;
 
 #[derive(Debug, thiserror::Error)]
 enum CmdError {
     #[error("Unexpected request body.")]
     RequestBodyMustBeRaw,
-    /*    #[error("Missing header entry: `{0}`.")]
-        MissingHeader(&'static str),
-        #[error("Malformed header entry: `{0}`.")]
-        MalformedHeaderEntry(&'static str),*/
     #[error("Prerequisite unsatisfied: `{0}`.")]
     PrerequisiteUnsatisfied(&'static str),
     #[error("Path conversion error: {0}.")]
@@ -75,7 +70,7 @@ struct AppStateData {
     loaded_gtfs: Option<LoadedGtfs>,
     network: Option<Network>,
     sim_steps: Option<Vec<simulation::SimulationStep>>,
-    trip_capacities: HashMap<String, TripCapacity>,
+    trip_capacities: TripCapacities,
     sim_result: Option<simulation::SimulationResult>,
     path_data: Vec<u8>,
     trip_data: Vec<u8>,
@@ -200,51 +195,30 @@ async fn import_trip_capacities(app: AppHandle, state: State<'_, AppState>) -> C
 
     let datafile = File::open(filepath)?;
 
-    app_data.trip_capacities = data_import::import_trip_capacities(datafile)?;
+    // Default capacity will be set in run_simulation.
+    app_data.trip_capacities = TripCapacities::new(Default::default(), data_import::import_trip_capacities(datafile)?);
 
     Ok(())
 }
 
 #[tauri::command]
-async fn export_model_csv(crowding_model: simulation::CrowdingModel, app: AppHandle) -> CmdResult<()> {
+async fn export_model_csv(crowding_func: CrowdingFunc, default_trip_capacity: TripCapacity, app: AppHandle) -> CmdResult<()> {
     let Some(filepath) = app.dialog()
                             .file()
-                            .set_file_name(crowding_model.func.get_name().to_owned() + "_model")
+                            .set_file_name(crowding_func.get_name().to_owned() + "_model")
                             .add_filter("CSV", &["csv"])
                             .blocking_save_file() else {
         // User cancelled.
         return Ok(());
     };
 
-    let csv = crowding_model.generate_csv();
+    let csv = crowding_func.generate_csv(default_trip_capacity);
 
     let filepath = filepath.as_path().ok_or(CmdError::PathConversion(filepath.clone()))?;
     std::fs::write(filepath, csv)?;
 
     Ok(())
 }
-
-// Serializable versions of crowding model types.
-//#[derive(serde::Deserialize, Debug)]
-//#[serde(remote = "simulation::CrowdingFunc")]
-//enum CrowdingFuncDef {
-//    Linear,
-//    Quadratic,
-//    OneStep,
-//    TwoStep,
-//}
-//
-//#[derive(serde::Deserialize, Debug)]
-//#[serde(remote = "simulation::CrowdingModel")]
-//struct CrowdingModelDef {
-//    #[serde(with = "CrowdingFuncDef")]
-//    func: simulation::CrowdingFunc,
-//    seated: u32,
-//    standing: u32,
-//}
-//
-//#[derive(serde::Deserialize)]
-//struct CrowdingModelDeserializeHelper(#[serde(with = "CrowdingModelDef")] simulation::CrowdingModel);
 
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase", tag = "event", content = "data")]
@@ -262,11 +236,14 @@ enum SimulationEvent {
 async fn run_simulation(num_rounds: u16,
                         bag_size: usize,
                         cost_utility: CrowdingCost,
-                        crowding_model: simulation::CrowdingModel,
+                        crowding_func: CrowdingFunc,
+                        default_trip_capacity: TripCapacity,
                         should_report_progress: bool,
                         on_simulation_event: Channel<SimulationEvent>,
                         state: State<'_, AppState>) -> CmdResult<()> {
     let mut app_data = state.data.lock()?;
+
+    app_data.trip_capacities.set_default_capacity(default_trip_capacity);
 
     let network = app_data.get_network()?;
     let simulation_steps = app_data.get_sim_steps()?;
@@ -281,8 +258,9 @@ async fn run_simulation(num_rounds: u16,
         })
     };
 
+
     let params = simulation::DefaultSimulationParams {
-        crowding_model,
+        crowding_function: crowding_func,
         progress_callback: Some(Box::new(|| {
             on_simulation_event.send(SimulationEvent::StepCompleted).unwrap_or_else(|e| {
                 log::warn!("Error sending progress event: {e}");
@@ -324,7 +302,7 @@ async fn export_counts(app: AppHandle, state: State<'_, AppState>) -> CmdResult<
     };
 
     let filepath = filepath.as_path().ok_or(CmdError::PathConversion(filepath.clone()))?;
-    data_export::export_agent_counts(filepath, network, sim_result)?;
+    data_export::export_agent_counts(filepath, network, sim_result, &app_data.trip_capacities)?;
 
     Ok(())
 }

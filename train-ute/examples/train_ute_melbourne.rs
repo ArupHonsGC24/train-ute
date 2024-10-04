@@ -17,7 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // From VicSig: X'Trapolis 3-car has 264 seated, 133 standing. A 6-car has 794 in total.
         // Crush capacity is 1394, but that's a bit mean.
         // https://vicsig.net/suburban/train/X'Trapolis
-        crowding_model: CrowdingModel {
+        crowding_function: CrowdingModel {
             func: CrowdingFunc::Linear,
             default_seated: 400,
             default_standing: 500,

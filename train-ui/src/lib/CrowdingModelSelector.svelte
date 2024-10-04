@@ -7,10 +7,9 @@
     { func: "twoStep", params: { a0: number, a1: number, a: number, b: number, c: number } };
   export type CrowdingFuncType = CrowdingFunc["func"];
 
-  export type CrowdingModel = {
-    func: CrowdingFunc;
-    defaultSeated: number;
-    defaultStanding: number;
+  export type TripCapacity = {
+    seated: number;
+    standing: number;
   };
 </script>
 
@@ -19,18 +18,17 @@
   import { callBackend, callBackendWithWaitCursor } from "$lib/utilities";
 
   let crowdingFuncType: CrowdingFuncType = "linear";
-  let defaultSeated = 528;
-  let defaultStanding = 266;
+  export let defaultTripCapacity: TripCapacity = {
+    seated: 528,
+    standing: 266,
+  };
+  export let crowdingFunc: CrowdingFunc = { func: crowdingFuncType };
+
   let a0 = 0.14;
   let a1 = 1.0;
   let a = 1.2;
   let b = 3.1;
   let c = 0.0234;
-  export let crowdingModel: CrowdingModel = {
-    func: { func: crowdingFuncType },
-    defaultSeated,
-    defaultStanding,
-  };
   export let costUtility = 0.5;
 
   $: {
@@ -39,7 +37,6 @@
   $: a_min = crowdingFuncType === "oneStep" ? 5 : 0;
 
   $: {
-    let func: CrowdingFunc;
     let coeff_min = 0.0001;
 
     function f(x: number) {
@@ -47,21 +44,16 @@
     }
 
     if (crowdingFuncType === "oneStep") {
-      func = { func: "oneStep", params: { a0: f(a0), a: f(a), b } };
+      crowdingFunc = { func: "oneStep", params: { a0: f(a0), a: f(a), b } };
     } else if (crowdingFuncType === "twoStep") {
-      func = { func: "twoStep", params: { a0, a1, a, b, c } };
+      crowdingFunc = { func: "twoStep", params: { a0, a1, a, b, c } };
     } else {
-      func = { func: crowdingFuncType };
+      crowdingFunc = { func: crowdingFuncType };
     }
-    crowdingModel = {
-      func,
-      defaultSeated,
-      defaultStanding,
-    };
   }
 
   async function exportModelCSV() {
-    await callBackend("export_model_csv", { crowdingModel });
+    await callBackend("export_model_csv", { crowdingFunc, defaultTripCapacity, });
   }
 
   let tripCapacitiesValid = false;
@@ -91,11 +83,11 @@
       <div class="cap-params-vert">
         <div class="param">
           <label for="S" class="cfg-label">Default Seated</label>
-          <input type="number" id="S" min="1" step="1" bind:value={defaultSeated}>
+          <input type="number" id="S" min="1" step="1" bind:value={defaultTripCapacity.seated}>
         </div>
         <div class="param">
           <label for="T" class="cfg-label">Default Standing</label>
-          <input type="number" id="T" min="1" step="1" bind:value={defaultStanding}
+          <input type="number" id="T" min="1" step="1" bind:value={defaultTripCapacity.standing}
                  disabled={crowdingFuncType === "oneStep"}>
         </div>
         <Button
