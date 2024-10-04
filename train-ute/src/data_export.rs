@@ -284,10 +284,10 @@ pub fn export_agent_counts(path: &Path, network: &Network, simulation_result: &S
     let trip_id_field = Field::new("trip_name", trip_id_arr.data_type().clone(), false);
 
     let trip_seated_arr = Arc::new(UInt32Array::from(trip_seated.clone()));
-    let trip_seated_field = Field::new("trip_seated_capacity", trip_seated_arr.data_type().clone(), false);
+    let trip_seated_field = Field::new("seated_capacity", trip_seated_arr.data_type().clone(), false);
 
     let trip_standing_arr = Arc::new(UInt32Array::from(trip_standing.clone()));
-    let trip_standing_field = Field::new("trip_standing_capacity", trip_standing_arr.data_type().clone(), false);
+    let trip_standing_field = Field::new("standing_capacity", trip_standing_arr.data_type().clone(), false);
 
     let timestamps_arr = Arc::new(TimestampMillisecondArray::from(timestamps.clone()));
     let timestamp_field = Field::new("timestamp", timestamps_arr.data_type().clone(), false);
