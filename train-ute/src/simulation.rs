@@ -73,6 +73,7 @@ impl CrowdingFunc {
 
 #[derive(Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
 pub struct CrowdingModel {
     pub func: CrowdingFunc,
     pub default_seated: PopulationCount,
@@ -421,18 +422,18 @@ fn run_simulation_round(network: &Network,
     for route_idx in 0..network.routes.len() {
         let route = &network.routes[route_idx];
         for trip in 0..route.num_trips as usize {
+            let trip_id = &route.trip_ids[trip];
             let trip_range = route.get_trip_range(trip);
             let stop_times = &network.stop_times[trip_range.clone()];
-            let trip_ids = &route.trip_ids[trip_range.clone()];
             let trip = &mut trip_stops_pop[trip_range.clone()];
             let costs = &mut trip_stops_cost[trip_range];
 
-            costs[0] = params.cost_fn(&trip_ids[0], trip[0]);
+            costs[0] = params.cost_fn(trip_id, trip[0]);
             for i in 0..(trip.len() - 1) {
                 // Calculate prefix sums
                 trip[i + 1] += trip[i];
                 // Calculate crowding cost.
-                let cost_per_unit_time = params.cost_fn(&trip_ids[i+1], trip[i + 1]);
+                let cost_per_unit_time = params.cost_fn(trip_id, trip[i + 1]);
                 let connection_time = stop_times[i + 1].departure_time - stop_times[i].arrival_time;
                 costs[i + 1] = cost_per_unit_time * connection_time as CrowdingCost;
                 assert!(trip[i] >= 0);

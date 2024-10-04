@@ -16,7 +16,7 @@
 
 <script lang="ts">
   import Button from "$lib/Button.svelte";
-  import { callBackend } from "$lib/utilities";
+  import { callBackend, callBackendWithWaitCursor } from "$lib/utilities";
 
   let crowdingFuncType: CrowdingFuncType = "linear";
   let defaultSeated = 528;
@@ -63,6 +63,13 @@
   async function exportModelCSV() {
     await callBackend("export_model_csv", { crowdingModel });
   }
+
+  let tripCapacitiesValid = false;
+  async function importTripCapacities() {
+    await callBackendWithWaitCursor("import_trip_capacities");
+    tripCapacitiesValid = true;
+  }
+
 </script>
 
 <div class="container">
@@ -95,7 +102,9 @@
           text="Import trip capacities"
           class="cfg-style"
           defaultTooltip="Import override trip capacities"
-          on:click={() => callBackend("import_trip_capacities")}
+          processIndicator={true}
+          processComplete={tripCapacitiesValid}
+          on:click={importTripCapacities}
         />
         <div class="param">
           <label for="costUtility" class="cfg-label">Cost Utility</label>

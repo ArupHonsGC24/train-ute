@@ -9,25 +9,24 @@ use raptor::Network;
 use std::collections::HashMap;
 use std::io::Read;
 use itertools::Itertools;
-use thiserror::Error;
 
-#[derive(Error, Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum DataImportError {
-    #[error("Parquet error: {0}.")]
+    #[error("Parquet error: {0}")]
     Parquet(#[from] parquet::errors::ParquetError),
-    #[error("Arrow error: {0}.")]
+    #[error("Arrow error: {0}")]
     Arrow(#[from] arrow::error::ArrowError),
-    //#[error("DataFusion error: {0}.")]
+    //#[error("DataFusion error: {0}")]
     //DataFusion(#[from] datafusion::common::DataFusionError),
-    #[error("No data for date {0}.")]
+    #[error("No data for date {0}")]
     NoDataForDate(NaiveDate),
-    #[error("Header not found: {0}.")]
+    #[error("Header not found: {0}")]
     HeaderNotFound(&'static str),
-    #[error("Column not found: {0}.")]
+    #[error("Column not found: {0}")]
     ColumnNotFound(&'static str),
-    #[error("Column {0} wrong format: wanted {1}.")]
+    #[error("Column {0} wrong format: wanted {1}")]
     ColumnWrongFormat(&'static str, &'static str),
-    #[error("No data found.")]
+    #[error("No data found")]
     NoData,
 }
 
@@ -141,8 +140,8 @@ pub fn import_trip_capacities(reader: impl Read) -> Result<HashMap<String, TripC
     let mut csv_reader = csv::Reader::from_reader(reader);
     let headers = csv_reader.headers().map_err(|_| DataImportError::ColumnNotFound("header"))?;
 
-    if headers.get(0) != Some("trip") {
-        return Err(DataImportError::ColumnNotFound("trip"));
+    if headers.get(0) != Some("trip_id") {
+        return Err(DataImportError::ColumnNotFound("trip_id"));
     }
     if headers.get(1) != Some("seated") {
         return Err(DataImportError::ColumnNotFound("seated"));

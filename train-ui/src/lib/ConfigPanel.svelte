@@ -121,6 +121,7 @@
     patronageDataValid = false;
     simulationResultsValid = false;
   }
+
 </script>
 
 <div class="cfg-panel">
@@ -156,6 +157,8 @@
     class="cfg-style"
     disabled={allowedDateRange == null}
     disabledTooltip="Load GTFS and select date first."
+    processIndicator={true}
+    processComplete={networkValid}
     on:click={generateNetwork}
   />
 
@@ -163,6 +166,8 @@
     text="Patronage Data Import"
     class="cfg-style"
     disabled={!networkValid}
+    processIndicator={true}
+    processComplete={patronageDataValid}
     on:click={patronageDataImport}
   />
 
@@ -202,6 +207,8 @@
     class="cfg-style"
     disabled={!patronageDataValid || simulationRunning}
     disabledTooltip={simulationDisabledTooltip}
+    processIndicator={true}
+    processComplete={simulationResultsValid}
     on:click={runSimulation}
   />
 
