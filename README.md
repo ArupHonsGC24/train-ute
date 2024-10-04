@@ -41,3 +41,5 @@ Currently, the patronage data needs to be in a specific format. Due to its size 
 | Glenbervie               | Melbourne Central             | 08:15:00                               | 4                   |
 | Ferntree Gully           | Southern Cross                | 08:15:00                               | 3                   |
 | ...                      | ...                           | ...                                    | ...                 |
+
+There is also a option to use randomised patronage data (a generated list of randomly selected pairs of points across the network).
