@@ -19,8 +19,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // https://vicsig.net/suburban/train/X'Trapolis
         crowding_model: CrowdingModel {
             func: CrowdingFunc::Linear,
-            seated: 400,
-            standing: 500,
+            default_seated: 400,
+            default_standing: 500,
         },
         progress_callback: None,
         journey_preferences: JourneyPreferences::default(),

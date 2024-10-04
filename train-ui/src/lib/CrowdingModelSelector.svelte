@@ -9,8 +9,8 @@
 
   export type CrowdingModel = {
     func: CrowdingFunc;
-    seated: number;
-    standing: number;
+    defaultSeated: number;
+    defaultStanding: number;
   };
 </script>
 
@@ -19,8 +19,8 @@
   import { callBackend } from "$lib/utilities";
 
   let crowdingFuncType: CrowdingFuncType = "linear";
-  let seated = 528;
-  let standing = 266;
+  let defaultSeated = 528;
+  let defaultStanding = 266;
   let a0 = 0.14;
   let a1 = 1.0;
   let a = 1.2;
@@ -28,20 +28,24 @@
   let c = 0.0234;
   export let crowdingModel: CrowdingModel = {
     func: { func: crowdingFuncType },
-    seated,
-    standing,
+    defaultSeated,
+    defaultStanding,
   };
   export let costUtility = 0.5;
 
-  $: { a = crowdingFuncType === "oneStep" ? Math.max(a, 5) : a; }
+  $: {
+    a = crowdingFuncType === "oneStep" ? Math.max(a, 5) : a;
+  }
   $: a_min = crowdingFuncType === "oneStep" ? 5 : 0;
 
   $: {
     let func: CrowdingFunc;
     let coeff_min = 0.0001;
+
     function f(x: number) {
       return Math.max(coeff_min, x);
     }
+
     if (crowdingFuncType === "oneStep") {
       func = { func: "oneStep", params: { a0: f(a0), a: f(a), b } };
     } else if (crowdingFuncType === "twoStep") {
@@ -51,12 +55,13 @@
     }
     crowdingModel = {
       func,
-      seated,
-      standing,
+      defaultSeated,
+      defaultStanding,
     };
   }
+
   async function exportModelCSV() {
-   await callBackend("export_model_csv", { crowdingModel }); 
+    await callBackend("export_model_csv", { crowdingModel });
   }
 </script>
 
@@ -78,36 +83,49 @@
     <div class="cap-params">
       <div class="cap-params-vert">
         <div class="param">
-          <label for="S" class="cfg-label">Seated Capacity</label>
-          <input type="number" id="S" min="1" step="1" bind:value={seated}>
+          <label for="S" class="cfg-label">Default Seated</label>
+          <input type="number" id="S" min="1" step="1" bind:value={defaultSeated}>
         </div>
         <div class="param">
-          <label for="T" class="cfg-label">Standing Capacity</label>
-          <input type="number" id="T" min="1" step="1" bind:value={standing} disabled={crowdingFuncType === "oneStep"}>
+          <label for="T" class="cfg-label">Default Standing</label>
+          <input type="number" id="T" min="1" step="1" bind:value={defaultStanding}
+                 disabled={crowdingFuncType === "oneStep"}>
         </div>
+        <Button
+          text="Import trip capacities"
+          class="cfg-style"
+          defaultTooltip="Import override trip capacities"
+          on:click={() => callBackend("import_trip_capacities")}
+        />
         <div class="param">
           <label for="costUtility" class="cfg-label">Cost Utility</label>
-          <input type="number" id="costUtility" min="0" step="0.1" title="Used by journey utility calculation: journey_time + cost_utility * crowding cost" bind:value={costUtility}>
+          <input type="number" id="costUtility" min="0" step="0.1"
+                 title="Used by journey utility calculation: journey_time + cost_utility * crowding cost"
+                 bind:value={costUtility}>
         </div>
       </div>
       <div class="cap-params-vert">
         <div class="param">
           <label for="a0" class="cfg-label">a0:</label>
-          <input type="number" id="a0" min="0" step="any" bind:value={a0} title="Seated cost" disabled={crowdingFuncType !== "oneStep" && crowdingFuncType !== "twoStep"}>
+          <input type="number" id="a0" min="0" step="any" bind:value={a0} title="Seated cost"
+                 disabled={crowdingFuncType !== "oneStep" && crowdingFuncType !== "twoStep"}>
         </div>
         <div class="param">
           <label for="a1" class="cfg-label">a1:</label>
-          <input type="number" id="a1" min="0" step="any" bind:value={a1} title="Standing cost" disabled={crowdingFuncType !== "twoStep"}>
+          <input type="number" id="a1" min="0" step="any" bind:value={a1} title="Standing cost"
+                 disabled={crowdingFuncType !== "twoStep"}>
         </div>
       </div>
       <div class="cap-params-vert">
         <div class="param">
           <label for="a" class="cfg-label">a:</label>
-          <input type="number" id="a" min={a_min} step="0.1" bind:value={a} disabled={crowdingFuncType !== "oneStep" && crowdingFuncType !== "twoStep"}>
+          <input type="number" id="a" min={a_min} step="0.1" bind:value={a}
+                 disabled={crowdingFuncType !== "oneStep" && crowdingFuncType !== "twoStep"}>
         </div>
         <div class="param">
           <label for="b" class="cfg-label">b:</label>
-          <input type="number" id="b" min="0" step="0.1" bind:value={b} disabled={crowdingFuncType !== "oneStep" && crowdingFuncType !== "twoStep"}>
+          <input type="number" id="b" min="0" step="0.1" bind:value={b}
+                 disabled={crowdingFuncType !== "oneStep" && crowdingFuncType !== "twoStep"}>
         </div>
         <div class="param">
           <label for="c" class="cfg-label">c:</label>
@@ -115,11 +133,11 @@
         </div>
       </div>
     </div>
-    <Button 
+    <Button
       text="Export function to CSV"
       class="cfg-style"
       defaultTooltip="Export the crowding function to a CSV file for reference."
-      on:click={exportModelCSV} 
+      on:click={exportModelCSV}
     />
   </div>
 </div>
@@ -128,7 +146,7 @@
   .container {
     width: 100%;
     display: flex;
-    align-items: center; 
+    align-items: center;
     gap: 10px;
   }
 
@@ -143,11 +161,12 @@
     flex-direction: column;
     gap: 10px;
   }
-  
+
   .cap-params {
     display: flex;
     gap: 10px;
   }
+
   .cap-params-vert {
     display: flex;
     flex-direction: column;
@@ -168,7 +187,7 @@
     /* TODO: This is a hack until I can sort out the styles properly. */
     padding: 4px !important;
   }
-  
+
   .cfg-label {
     font-size: 0.8rem;
     flex: 1;

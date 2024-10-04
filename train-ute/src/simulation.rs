@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicI32, Ordering};
 use itertools::izip;
 #[cfg(feature = "progress_bar")]
@@ -16,9 +17,21 @@ pub type PopulationCount = i32;
 pub type PopulationCountAtomic = AtomicI32;
 pub type CrowdingCost = PathfindingCost;
 
+#[derive(Clone, Copy, Debug)]
+pub struct TripCapacity {
+    pub seated: PopulationCount,
+    pub standing: PopulationCount,
+}
+
+impl TripCapacity {
+    pub fn total(&self) -> PopulationCount {
+        self.seated + self.standing
+    }
+}
+
 pub type SimulationProgressCallback<'a> = dyn Fn() + Sync + Send + 'a;
 pub trait SimulationParams: Sync {
-    fn cost_fn(&self, count: PopulationCount) -> CrowdingCost;
+    fn cost_fn(&self, trip_id: &str, count: PopulationCount) -> CrowdingCost;
     fn get_journey_preferences(&self) -> &JourneyPreferences;
     fn get_num_rounds(&self) -> u16;
     fn get_bag_size(&self) -> usize;
@@ -62,50 +75,55 @@ impl CrowdingFunc {
 #[cfg_attr(feature = "serde", derive(serde::Deserialize))]
 pub struct CrowdingModel {
     pub func: CrowdingFunc,
-    pub seated: PopulationCount,
-    pub standing: PopulationCount,
+    pub default_seated: PopulationCount,
+    pub default_standing: PopulationCount,
 }
 
 impl CrowdingModel {
-    fn total_capacity(&self) -> PopulationCount {
-        self.seated + self.standing
+    fn get_default_capacity(&self) -> TripCapacity {
+        TripCapacity {
+            seated: self.default_seated,
+            standing: self.default_standing,
+        }
     }
-    fn linear(&self, x: PopulationCount) -> CrowdingCost {
-        x as CrowdingCost / self.total_capacity() as CrowdingCost
+    fn linear(&self, cap: TripCapacity, x: PopulationCount) -> CrowdingCost {
+        x as CrowdingCost / cap.total() as CrowdingCost
     }
-    fn quadratic(&self, x: PopulationCount) -> CrowdingCost {
-        let total_capacity = self.total_capacity();
+    fn quadratic(&self, cap: TripCapacity, x: PopulationCount) -> CrowdingCost {
+        let total_capacity = cap.total();
         (x * x) as CrowdingCost / (total_capacity * total_capacity) as CrowdingCost
     }
-    fn one_step(&self, x: PopulationCount, a0: CrowdingCost, a: CrowdingCost, b: CrowdingCost) -> CrowdingCost {
+    fn one_step(&self, cap: TripCapacity, x: PopulationCount, a0: CrowdingCost, a: CrowdingCost, b: CrowdingCost) -> CrowdingCost {
         if x == 0 {
             return 0.;
         }
-        let x_on_s = x as CrowdingCost / self.seated as CrowdingCost;
-        let s_on_x = self.seated as CrowdingCost / x as CrowdingCost;
+        let seated = cap.seated;
+        let x_on_s = x as CrowdingCost / seated as CrowdingCost;
+        let s_on_x = seated as CrowdingCost / x as CrowdingCost;
 
         (a0 * s_on_x + (1. - s_on_x) * a0 * (1. + b * (a * (x_on_s - 1.)).exp())).max(a0)
     }
-    fn two_step(&self, x: PopulationCount, a0: CrowdingCost, a1: CrowdingCost, a: CrowdingCost, b: CrowdingCost, c: CrowdingCost) -> CrowdingCost {
+    fn two_step(&self, cap: TripCapacity, x: PopulationCount, a0: CrowdingCost, a1: CrowdingCost, a: CrowdingCost, b: CrowdingCost, c: CrowdingCost) -> CrowdingCost {
         if x == 0 {
             return 0.;
         }
 
-        a0 + (a1 - a0) / (1. + (a * (self.seated - x) as CrowdingCost).exp()) + b * (c * (x - self.total_capacity()) as CrowdingCost).exp()
+        a0 + (a1 - a0) / (1. + (a * (cap.seated - x) as CrowdingCost).exp()) + b * (c * (x - cap.total()) as CrowdingCost).exp()
     }
-    pub fn crowding_cost(&self, count: PopulationCount) -> CrowdingCost {
+    pub fn crowding_cost(&self, cap: Option<&TripCapacity>, count: PopulationCount) -> CrowdingCost {
+        let cap = cap.copied().unwrap_or(self.get_default_capacity());
         match &self.func {
-            CrowdingFunc::Linear => self.linear(count),
-            CrowdingFunc::Quadratic => self.quadratic(count),
-            CrowdingFunc::OneStep { a0, a, b } => self.one_step(count, *a0, *a, *b),
-            CrowdingFunc::TwoStep { a0, a1, a, b , c} => self.two_step(count, *a0, *a1, *a, *b, *c),
+            CrowdingFunc::Linear => self.linear(cap, count),
+            CrowdingFunc::Quadratic => self.quadratic(cap, count),
+            CrowdingFunc::OneStep { a0, a, b } => self.one_step(cap, count, *a0, *a, *b),
+            CrowdingFunc::TwoStep { a0, a1, a, b , c} => self.two_step(cap, count, *a0, *a1, *a, *b, *c),
         }
     }
     pub fn generate_csv(&self) -> String {
         let mut csv = String::new();
         csv.push_str(&format!("count,{}_cost\n", self.func.get_name()));
-        for count in 0..=self.total_capacity() {
-            let cost = self.crowding_cost(count);
+        for count in 0..=self.get_default_capacity().total() {
+            let cost = self.crowding_cost(None, count);
             csv.push_str(&format!("{count},{cost}\n"));
         }
         csv
@@ -119,13 +137,14 @@ pub struct DefaultSimulationParams<'a> {
     pub journey_preferences: JourneyPreferences,
     pub num_rounds: u16,
     pub bag_size: usize,
+    pub trip_capacities: HashMap<String, TripCapacity>,
     pub should_report_progress: bool,
 }
 
 impl SimulationParams for DefaultSimulationParams<'_> {
-    fn cost_fn(&self, count: PopulationCount) -> CrowdingCost {
+    fn cost_fn(&self, trip_id: &str, count: PopulationCount) -> CrowdingCost {
         debug_assert!(count >= 0, "Negative population count");
-        self.crowding_model.crowding_cost(count)
+        self.crowding_model.crowding_cost(self.trip_capacities.get(trip_id), count)
     }
 
     fn get_journey_preferences(&self) -> &JourneyPreferences {
@@ -404,15 +423,16 @@ fn run_simulation_round(network: &Network,
         for trip in 0..route.num_trips as usize {
             let trip_range = route.get_trip_range(trip);
             let stop_times = &network.stop_times[trip_range.clone()];
+            let trip_ids = &route.trip_ids[trip_range.clone()];
             let trip = &mut trip_stops_pop[trip_range.clone()];
             let costs = &mut trip_stops_cost[trip_range];
 
-            costs[0] = params.cost_fn(trip[0]);
+            costs[0] = params.cost_fn(&trip_ids[0], trip[0]);
             for i in 0..(trip.len() - 1) {
                 // Calculate prefix sums
                 trip[i + 1] += trip[i];
                 // Calculate crowding cost.
-                let cost_per_unit_time = params.cost_fn(trip[i + 1]);
+                let cost_per_unit_time = params.cost_fn(&trip_ids[i+1], trip[i + 1]);
                 let connection_time = stop_times[i + 1].departure_time - stop_times[i].arrival_time;
                 costs[i + 1] = cost_per_unit_time * connection_time as CrowdingCost;
                 assert!(trip[i] >= 0);

@@ -1,13 +1,14 @@
-use crate::simulation::{AgentCount, SimulationStep};
+use crate::simulation::{AgentCount, PopulationCount, SimulationStep, TripCapacity};
 use arrow::array::AsArray;
 use arrow::datatypes::{Int32Type, Time64MicrosecondType};
 use chrono::NaiveDate;
-use itertools::Itertools;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use parquet::file::reader::ChunkReader;
 use raptor::network::{StopIndex, Timestamp};
 use raptor::Network;
 use std::collections::HashMap;
+use std::io::Read;
+use itertools::Itertools;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -20,10 +21,14 @@ pub enum DataImportError {
     //DataFusion(#[from] datafusion::common::DataFusionError),
     #[error("No data for date {0}.")]
     NoDataForDate(NaiveDate),
+    #[error("Header not found: {0}.")]
+    HeaderNotFound(&'static str),
     #[error("Column not found: {0}.")]
     ColumnNotFound(&'static str),
     #[error("Column {0} wrong format: wanted {1}.")]
     ColumnWrongFormat(&'static str, &'static str),
+    #[error("No data found.")]
+    NoData,
 }
 
 //type Date32TypeNative = <Date32Type as ArrowPrimitiveType>::Native;
@@ -129,5 +134,35 @@ pub fn build_simulation_steps_from_patronage_data(reader: impl ChunkReader + 'st
         Err(DataImportError::NoDataForDate(network.date))
     } else {
         Ok(simulation_steps.into_values().collect_vec())
+    }
+}
+
+pub fn import_trip_capacities(reader: impl Read) -> Result<HashMap<String, TripCapacity>, DataImportError> {
+    let mut csv_reader = csv::Reader::from_reader(reader);
+    let headers = csv_reader.headers().map_err(|_| DataImportError::ColumnNotFound("header"))?;
+
+    if headers.get(0) != Some("trip") {
+        return Err(DataImportError::ColumnNotFound("trip"));
+    }
+    if headers.get(1) != Some("seated") {
+        return Err(DataImportError::ColumnNotFound("seated"));
+    }
+    if headers.get(2) != Some("standing") {
+        return Err(DataImportError::ColumnNotFound("standing"));
+    }
+
+    let capacities: HashMap<_, _> = csv_reader.into_records().filter_map(|record| {
+        let record = record.ok()?;
+        // trip_id,seated,standing
+        let trip_id = record.get(0)?;
+        let seated = record.get(1)?.parse::<PopulationCount>().ok()?;
+        let standing = record.get(2)?.parse::<PopulationCount>().ok()?;
+        Some((trip_id.to_string(), TripCapacity { seated, standing }))
+    }).collect();
+
+    if capacities.is_empty() {
+        Err(DataImportError::NoData)
+    } else {
+        Ok(capacities)
     }
 }

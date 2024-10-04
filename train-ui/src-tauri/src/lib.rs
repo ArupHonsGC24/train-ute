@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::Cursor;
 use std::sync::Mutex;
@@ -11,6 +12,7 @@ use tauri::{ipc, AppHandle, State};
 use tauri_plugin_dialog::{DialogExt, FilePath};
 use raptor::network::PathfindingCost;
 use train_ute::{data_export, data_import, simulation};
+use train_ute::simulation::TripCapacity;
 use train_ute::simulation::CrowdingCost;
 
 #[derive(Debug, thiserror::Error)]
@@ -73,6 +75,7 @@ struct AppStateData {
     loaded_gtfs: Option<LoadedGtfs>,
     network: Option<Network>,
     sim_steps: Option<Vec<simulation::SimulationStep>>,
+    trip_capacities: HashMap<String, TripCapacity>,
     sim_result: Option<simulation::SimulationResult>,
     path_data: Vec<u8>,
     trip_data: Vec<u8>,
@@ -182,6 +185,45 @@ async fn patronage_data_import(app: AppHandle, state: State<'_, AppState>) -> Cm
     Ok(())
 }
 
+#[tauri::command]
+async fn import_trip_capacities(app: AppHandle, state: State<'_, AppState>) -> CmdResult<()> {
+    let mut app_data = state.data.lock()?;
+
+    let Some(filepath) = app.dialog()
+                            .file()
+                            .add_filter("CSV", &["csv"])
+                            .blocking_pick_file() else {
+        // User cancelled.
+        return Ok(());
+    };
+    let filepath = filepath.as_path().ok_or(CmdError::PathConversion(filepath.clone()))?;
+
+    let datafile = File::open(filepath)?;
+
+    app_data.trip_capacities = data_import::import_trip_capacities(datafile)?;
+
+    Ok(())
+}
+
+#[tauri::command]
+async fn export_model_csv(crowding_model: simulation::CrowdingModel, app: AppHandle) -> CmdResult<()> {
+    let Some(filepath) = app.dialog()
+                            .file()
+                            .set_file_name(crowding_model.func.get_name().to_owned() + "_model")
+                            .add_filter("CSV", &["csv"])
+                            .blocking_save_file() else {
+        // User cancelled.
+        return Ok(());
+    };
+
+    let csv = crowding_model.generate_csv();
+
+    let filepath = filepath.as_path().ok_or(CmdError::PathConversion(filepath.clone()))?;
+    std::fs::write(filepath, csv)?;
+
+    Ok(())
+}
+
 // Serializable versions of crowding model types.
 //#[derive(serde::Deserialize, Debug)]
 //#[serde(remote = "simulation::CrowdingFunc")]
@@ -217,25 +259,6 @@ enum SimulationEvent {
 }
 
 #[tauri::command]
-async fn export_model_csv(crowding_model: simulation::CrowdingModel, app: AppHandle) -> CmdResult<()> {
-    let Some(filepath) = app.dialog()
-                            .file()
-                            .set_file_name(crowding_model.func.get_name().to_owned() + "_model")
-                            .add_filter("CSV", &["csv"])
-                            .blocking_save_file() else {
-        // User cancelled.
-        return Ok(());
-    };
-
-    let csv = crowding_model.generate_csv();
-    
-    let filepath = filepath.as_path().ok_or(CmdError::PathConversion(filepath.clone()))?;
-    std::fs::write(filepath, csv)?;
-
-    Ok(())
-}
-
-#[tauri::command]
 async fn run_simulation(num_rounds: u16,
                         bag_size: usize,
                         cost_utility: CrowdingCost,
@@ -268,6 +291,7 @@ async fn run_simulation(num_rounds: u16,
         journey_preferences,
         num_rounds,
         bag_size,
+        trip_capacities: app_data.trip_capacities.clone(),
         should_report_progress,
     };
 
@@ -358,7 +382,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             load_gtfs, 
             gen_network, 
-            patronage_data_import, 
+            patronage_data_import,
+            import_trip_capacities,
             export_model_csv,
             run_simulation, 
             export_counts, 

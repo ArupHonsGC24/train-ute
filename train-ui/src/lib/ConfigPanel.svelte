@@ -99,7 +99,6 @@
       return;
     }
     simulationRunning = true;
-    console.log("Crowding function: %s, seated: %d, standing: %d", crowdingModel.func, crowdingModel.seated, crowdingModel.standing);
     try {
       await callBackendWithWaitCursor("run_simulation", {
         numRounds,
@@ -242,7 +241,7 @@
 
   .cfg-panel :global(.cfg-style) {
     width: 100%;
-    padding: 10px;
+    padding: 4px;
     font-size: 1rem;
     border-radius: 5px;
     border: none;
