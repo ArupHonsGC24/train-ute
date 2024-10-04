@@ -10,8 +10,8 @@ use raptor::Network;
 use tauri::ipc::Channel;
 use tauri::{ipc, AppHandle, State};
 use tauri_plugin_dialog::{DialogExt, FilePath};
-use train_ute::simulation::{CrowdingCost, CrowdingFunc, TripCapacity};
 use train_ute::simulation::TripCapacities;
+use train_ute::simulation::{CrowdingCost, CrowdingFunc, TripCapacity};
 use train_ute::{data_export, data_import, simulation};
 
 #[derive(Debug, thiserror::Error)]
@@ -229,7 +229,6 @@ enum SimulationEvent {
         num_steps: usize,
     },
     StepCompleted,
-    //RoundCompleted,
 }
 
 #[tauri::command]
@@ -239,6 +238,7 @@ async fn run_simulation(num_rounds: u16,
                         crowding_func: CrowdingFunc,
                         default_trip_capacity: TripCapacity,
                         should_report_progress: bool,
+                        gen_random_steps: bool,
                         on_simulation_event: Channel<SimulationEvent>,
                         state: State<'_, AppState>) -> CmdResult<()> {
     let mut app_data = state.data.lock()?;
@@ -246,7 +246,17 @@ async fn run_simulation(num_rounds: u16,
     app_data.trip_capacities.set_default_capacity(default_trip_capacity);
 
     let network = app_data.get_network()?;
-    let simulation_steps = app_data.get_sim_steps()?;
+
+    let random_steps_vec = if gen_random_steps {
+        simulation::gen_simulation_steps(network, None, None)
+    } else {
+        Vec::new()
+    };
+    let simulation_steps = if gen_random_steps {
+        &random_steps_vec
+    } else {
+        app_data.get_sim_steps()?
+    };
 
     on_simulation_event.send(SimulationEvent::Started { num_rounds, num_steps: simulation_steps.len() }).unwrap_or_else(|e| {
         log::warn!("Error sending init event: {e}");
@@ -258,24 +268,24 @@ async fn run_simulation(num_rounds: u16,
         })
     };
 
-
     let params = simulation::DefaultSimulationParams {
         crowding_function: crowding_func,
-        progress_callback: Some(Box::new(|| {
-            on_simulation_event.send(SimulationEvent::StepCompleted).unwrap_or_else(|e| {
-                log::warn!("Error sending progress event: {e}");
-            });
-        })),
+        progress_callback: if should_report_progress {
+            Some(Box::new(|| {
+                on_simulation_event.send(SimulationEvent::StepCompleted).unwrap_or_else(|e| {
+                    log::warn!("Error sending progress event: {e}");
+                });
+            }))
+        } else { None },
         journey_preferences,
         num_rounds,
         bag_size,
         trip_capacities: app_data.trip_capacities.clone(),
-        should_report_progress,
     };
 
     let sim_result = Some(simulation::run_simulation(network, &simulation_steps, &params));
 
-    // Export the trip data
+    // Export the trip data.
     let mut trip_data = Vec::new();
     data_export::export_network_trips(&network, &sim_result.as_ref().unwrap(), &mut trip_data)?;
 

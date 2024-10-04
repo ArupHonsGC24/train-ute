@@ -67,7 +67,6 @@ pub trait SimulationParams: Sync {
     fn get_journey_preferences(&self) -> &JourneyPreferences;
     fn get_num_rounds(&self) -> u16;
     fn get_bag_size(&self) -> usize;
-    fn should_report_progress(&self) -> bool;
     fn get_progress_callback(&self) -> Option<&SimulationProgressCallback> { None }
     // Called by the simulation to report progress (0-1).
     fn run_progress_callback(&self) {
@@ -151,7 +150,6 @@ pub struct DefaultSimulationParams<'a> {
     pub num_rounds: u16,
     pub bag_size: usize,
     pub trip_capacities: TripCapacities,
-    pub should_report_progress: bool,
 }
 
 impl SimulationParams for DefaultSimulationParams<'_> {
@@ -170,10 +168,6 @@ impl SimulationParams for DefaultSimulationParams<'_> {
 
     fn get_bag_size(&self) -> usize {
         self.bag_size
-    }
-
-    fn should_report_progress(&self) -> bool {
-        self.should_report_progress
     }
 
     fn get_progress_callback(&self) -> Option<&SimulationProgressCallback> {
@@ -247,7 +241,6 @@ impl SimulationResult {
 }
 
 pub fn gen_simulation_steps(network: &Network, number: Option<usize>, seed: Option<u64>) -> Vec<SimulationStep> {
-    let mut simulation_steps = Vec::new();
     let num_stops = network.num_stops() as StopIndex;
     let mut rng = match seed {
         Some(seed) => SmallRng::seed_from_u64(seed),
@@ -260,6 +253,7 @@ pub fn gen_simulation_steps(network: &Network, number: Option<usize>, seed: Opti
     let sim_length = sim_end_time - sim_start_time;
     let number = number.unwrap_or(sim_length as usize);
     let interval = sim_length as f64 / number as f64;
+    let mut simulation_steps = Vec::with_capacity(number);
     for i in 0..number {
         let start_time = sim_start_time + (i as f64 * interval) as Timestamp;
         simulation_steps.push(SimulationStep {
@@ -462,7 +456,7 @@ fn run_simulation_round(network: &Network,
 
 pub fn run_simulation(network: &Network, simulation_steps: &[SimulationStep], params: &impl SimulationParams) -> SimulationResult {
     #[cfg(feature = "progress_bar")]
-    if params.should_report_progress() {
+    if params.get_progress_callback().is_some() {
         fn handle_io_error<T>(result: std::io::Result<T>) {
             if let Err(err) = result {
                 log::error!("IO error: {err}");
@@ -489,7 +483,7 @@ pub fn run_simulation(network: &Network, simulation_steps: &[SimulationStep], pa
     };
 
     #[cfg(feature = "progress_bar")]
-    if params.should_report_progress() {
+    if params.get_progress_callback().is_some() {
         for round_number in tqdm!(round_iterator, desc = "Simulation Rounds", position = 0) {
             run_round(round_number);
         }

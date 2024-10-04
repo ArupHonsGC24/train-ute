@@ -63,6 +63,7 @@
   let costUtility: number;
 
   let networkValid = false;
+  let randomPatronageData = false;
   let patronageDataValid = false;
   let simulationResultsValid = false;
 
@@ -95,6 +96,7 @@
 
   let simulationRunning = false;
   $: simulationDisabledTooltip = simulationRunning ? "Simulation currently running." : "Generate network and import patronage data first.";
+  $: canRunSimulation = networkValid && (patronageDataValid || randomPatronageData) && !simulationRunning;
   async function runSimulation() {
     if (simulationRunning) {
       return;
@@ -108,6 +110,7 @@
         crowdingFunc,
         defaultTripCapacity,
         shouldReportProgress: false,
+        genRandomSteps: randomPatronageData,
         onSimulationEvent,
       });
     } finally {
@@ -164,14 +167,18 @@
     on:click={generateNetwork}
   />
 
-  <Button
-    text="Patronage Data Import"
-    class="cfg-style"
-    disabled={!networkValid}
-    processIndicator={true}
-    processComplete={patronageDataValid}
-    on:click={patronageDataImport}
-  />
+  <div class="cfg-label">
+    <Button
+      text="Patronage Data Import"
+      class="cfg-style"
+      disabled={!networkValid || randomPatronageData}
+      processIndicator={true}
+      processComplete={patronageDataValid || randomPatronageData}
+      on:click={patronageDataImport}
+    />
+    <label for="random">Random:</label>
+    <input type="checkbox" id="random" bind:checked={randomPatronageData}>
+  </div>
 
   <CrowdingModelSelector bind:crowdingFunc bind:defaultTripCapacity bind:costUtility />
 
@@ -183,7 +190,7 @@
       min="1"
       max="10"
       class="cfg-input"
-      disabled={!patronageDataValid}
+      disabled={!canRunSimulation}
       bind:value={numRounds}
     />
     <span>{numRounds}</span>
@@ -198,7 +205,7 @@
       max="5"
       step="1"
       class="cfg-input"
-      disabled={!patronageDataValid}
+      disabled={!canRunSimulation}
       bind:value={bagSize}
     />
     <span>{bagSize}</span>
@@ -207,7 +214,7 @@
   <Button
     text="Run Simulation"
     class="cfg-style"
-    disabled={!patronageDataValid || simulationRunning}
+    disabled={!canRunSimulation}
     disabledTooltip={simulationDisabledTooltip}
     processIndicator={true}
     processComplete={simulationResultsValid}
