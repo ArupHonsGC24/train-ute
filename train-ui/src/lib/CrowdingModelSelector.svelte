@@ -17,18 +17,17 @@
   import Button from "$lib/Button.svelte";
   import { callBackend, callBackendWithWaitCursor } from "$lib/utilities";
 
-  let crowdingFuncType: CrowdingFuncType = "linear";
+  let crowdingFuncType: CrowdingFuncType = "twoStep";
   export let defaultTripCapacity: TripCapacity = {
     seated: 528,
     standing: 266,
   };
-  export let crowdingFunc: CrowdingFunc = { func: crowdingFuncType };
-
-  let a0 = 0.14;
-  let a1 = 1.0;
-  let a = 1.2;
-  let b = 3.1;
-  let c = 0.0234;
+  let a0 = 0.25;
+  let a1 = 0.5;
+  let a = 5;
+  let b = 1;
+  let c = 0.01;
+  export let crowdingFunc: CrowdingFunc = { func: crowdingFuncType, params: { a0, a1, a, b, c } };
   export let costUtility = 0.5;
 
   $: {
@@ -53,10 +52,11 @@
   }
 
   async function exportModelCSV() {
-    await callBackend("export_model_csv", { crowdingFunc, defaultTripCapacity, });
+    await callBackend("export_model_csv", { crowdingFunc, defaultTripCapacity });
   }
 
   let tripCapacitiesValid = false;
+
   async function importTripCapacities() {
     await callBackendWithWaitCursor("import_trip_capacities");
     tripCapacitiesValid = true;

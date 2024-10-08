@@ -127,8 +127,42 @@ async fn load_gtfs(request: ipc::Request<'_>, state: State<'_, AppState>) -> Cmd
     }
 }
 
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum ModeType {
+    Tram,
+    Subway,
+    Rail,
+    Bus,
+    Ferry,
+    CableCar,
+    Gondola,
+    Funicular,
+    Coach,
+    Air,
+    Taxi,
+}
+
+impl ModeType {
+    pub fn get_gtfs_route_type(&self) -> gtfs_structures::RouteType {
+        match self {
+            ModeType::Tram => gtfs_structures::RouteType::Tramway,
+            ModeType::Subway => gtfs_structures::RouteType::Subway,
+            ModeType::Rail => gtfs_structures::RouteType::Rail,
+            ModeType::Bus => gtfs_structures::RouteType::Bus,
+            ModeType::Ferry => gtfs_structures::RouteType::Ferry,
+            ModeType::CableCar => gtfs_structures::RouteType::CableCar,
+            ModeType::Gondola => gtfs_structures::RouteType::Gondola,
+            ModeType::Funicular => gtfs_structures::RouteType::Funicular,
+            ModeType::Coach => gtfs_structures::RouteType::Coach,
+            ModeType::Air => gtfs_structures::RouteType::Air,
+            ModeType::Taxi => gtfs_structures::RouteType::Taxi,
+        }
+    }
+}
+
 #[tauri::command]
-async fn gen_network(model_date: NaiveDate, state: State<'_, AppState>) -> CmdResult<()> {
+async fn gen_network(model_date: NaiveDate, mode_filter: Option<ModeType>, state: State<'_, AppState>) -> CmdResult<()> {
     let mut app_data = state.data.lock()?;
 
     let loaded_gtfs = app_data.get_loaded_gtfs()?;
@@ -140,7 +174,7 @@ async fn gen_network(model_date: NaiveDate, state: State<'_, AppState>) -> CmdRe
     // TODO: Make user specifiable.
     let default_transfer_time = 3 * 60;
 
-    let mut network = Network::new(&loaded_gtfs.gtfs, model_date, default_transfer_time);
+    let mut network = Network::new(&loaded_gtfs.gtfs, mode_filter.map(|r| r.get_gtfs_route_type()), model_date, default_transfer_time);
     network.build_connections();
 
     // Line shapes are constant for the network, so calculate here.

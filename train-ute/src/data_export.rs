@@ -193,12 +193,16 @@ pub fn export_network_trips(network: &Network, simulation_result: &SimulationRes
                 let mut distance = 0.;
                 for shape_idx in start_shape_idx..shape_idx {
                     assert!(distance >= 0.);
-                    assert!(distance_along_shape_section > 0.);
 
                     // Calculate proportion along this shape we are, for interpolating properties.
                     // Apply an easing function to the proportion, so trains accelerate and decelerate.
                     // We use the inverse of the easing function for easing time.
-                    let proportion = (distance / distance_along_shape_section) as f32;
+                    let proportion = if distance_along_shape_section <= 0. {
+                        if shape_idx < route_shape.len() { 0. } else { 1. }
+                    } else {
+                        (distance / distance_along_shape_section) as f32
+                    };
+
                     let proportion_inv = quadratic_inv_ease_in_out(proportion);
                     let proportion = quadratic_ease_in_out(proportion);
                     let time = departure_time + section_duration * proportion_inv;

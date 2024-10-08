@@ -440,7 +440,10 @@ fn run_simulation_round(network: &Network,
                 trip[i + 1] += trip[i];
                 // Calculate crowding cost.
                 let cost_per_unit_time = params.cost_fn(trip_id, trip[i + 1]);
-                let connection_time = stop_times[i + 1].departure_time - stop_times[i].arrival_time;
+                let connection_time = stop_times[i + 1].departure_time.checked_sub(stop_times[i].arrival_time).unwrap_or_else(|| {
+                    log::warn!("Negative connection time: {} -> {}", raptor::utils::get_time_str(stop_times[i].arrival_time), raptor::utils::get_time_str(stop_times[i + 1].departure_time));
+                    0
+                });
                 costs[i + 1] = cost_per_unit_time * connection_time as CrowdingCost;
                 assert!(trip[i] >= 0);
             }

@@ -3,7 +3,7 @@
   import { Channel } from "@tauri-apps/api/core";
   import { callBackend, callBackendWithWaitCursor, runWithWaitCursor } from "$lib/utilities";
   import Button from "$lib/Button.svelte";
-  import CrowdingModelSelector, { type CrowdingModel, type TripCapacity } from "$lib/CrowdingModelSelector.svelte";
+  import CrowdingModelSelector, { type CrowdingFunc, type TripCapacity } from "$lib/CrowdingModelSelector.svelte";
 
   let dispatch = createEventDispatcher<{
     "simulation-finished": void;
@@ -58,7 +58,7 @@
 
   let numRounds = 3;
   let bagSize = 3;
-  let crowdingFunc: CrowdingModel;
+  let crowdingFunc: CrowdingFunc;
   let defaultTripCapacity: TripCapacity;
   let costUtility: number;
 
@@ -68,7 +68,7 @@
   let simulationResultsValid = false;
 
   async function generateNetwork() {
-    await callBackendWithWaitCursor("gen_network", { modelDate });
+    await callBackendWithWaitCursor("gen_network", { modelDate, modeFilter: "rail" });
     networkValid = true;
   }
 

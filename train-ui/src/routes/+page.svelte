@@ -10,7 +10,7 @@
 </svelte:head>
 
 <div id="container">
-  <h1>Train Ute Model</h1>
+  <h1>Who's on Board? A Service Demand Model</h1>
   <div id="panels">
     <div id="left-panel">
       <Visualisation bind:this={visualisation}/>
