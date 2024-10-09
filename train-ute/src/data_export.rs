@@ -397,6 +397,7 @@ pub fn export_agent_journeys(writer: impl Write + Send, network: &Network, simul
     let mut journey_start_times_ms = Vec::with_capacity(num_records);
     let mut crowding_costs = Vec::with_capacity(num_records);
     let mut num_transfers = Vec::with_capacity(num_records);
+    let mut agent_counts = Vec::with_capacity(num_records);
 
     // Convert timestamps to milliseconds because the Time32Second type is not widely supported.
     fn sec_to_milli(sec: Timestamp) -> i32 {
@@ -420,6 +421,7 @@ pub fn export_agent_journeys(writer: impl Write + Send, network: &Network, simul
 
                             journey_times_ms.push(Some(sec_to_milli(leg.arrival_time - leg.boarded_time)));
                             journey_start_times_ms.push(Some(sec_to_milli(leg.boarded_time)));
+                            agent_counts.push(Some(journey.count as u32));
                         }
                     } else {
                         agent_ids.push(i as u32);
@@ -436,6 +438,7 @@ pub fn export_agent_journeys(writer: impl Write + Send, network: &Network, simul
                         journey_start_times_ms.push(Some(sec_to_milli(journey.start_time)));
                         crowding_costs.push(Some(journey.crowding_cost));
                         num_transfers.push(Some(journey.num_transfers as u32));
+                        agent_counts.push(Some(journey.count as u32));
                     }
                 }
                 Err(err) => {
@@ -456,6 +459,7 @@ pub fn export_agent_journeys(writer: impl Write + Send, network: &Network, simul
                     journey_start_times_ms.push(None);
                     crowding_costs.push(None);
                     num_transfers.push(None);
+                    agent_counts.push(None);
                 }
             }
         }
@@ -496,6 +500,9 @@ pub fn export_agent_journeys(writer: impl Write + Send, network: &Network, simul
     let num_transfers_arr = Arc::new(UInt32Array::from(num_transfers.clone()));
     let num_transfers_field = Field::new("Num_Transfers", num_transfers_arr.data_type().clone(), true);
 
+    let agent_counts_arr = Arc::new(UInt32Array::from(agent_counts.clone()));
+    let agent_counts_field = Field::new("Agent_Count", agent_counts_arr.data_type().clone(), true);
+
     let schema = if legs {
         Arc::new(Schema::new(vec![
             agent_ids_field,
@@ -506,6 +513,7 @@ pub fn export_agent_journeys(writer: impl Write + Send, network: &Network, simul
             destination_field,
             journey_durations_field,
             journey_start_times_field,
+            agent_counts_field,
         ]))
     } else {
         Arc::new(Schema::new(vec![
@@ -520,6 +528,7 @@ pub fn export_agent_journeys(writer: impl Write + Send, network: &Network, simul
             journey_start_times_field,
             crowding_costs_field,
             num_transfers_field,
+            agent_counts_field
         ]))
     };
 
@@ -533,6 +542,7 @@ pub fn export_agent_journeys(writer: impl Write + Send, network: &Network, simul
             destinations_arr,
             journey_durations_arr,
             journey_start_times_arr,
+            agent_counts_arr,
         ]
     } else {
         vec![
@@ -547,6 +557,7 @@ pub fn export_agent_journeys(writer: impl Write + Send, network: &Network, simul
             journey_start_times_arr,
             crowding_costs_arr,
             num_transfers_arr,
+            agent_counts_arr
         ]
     };
 

@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::io::IsTerminal;
 use std::sync::atomic::{AtomicI32, Ordering};
 
-pub type AgentCount = u16;
+pub type AgentCount = u32;
 pub type PopulationCount = i32;
 pub type PopulationCountAtomic = AtomicI32;
 pub type CrowdingCost = PathfindingCost;
