@@ -204,12 +204,8 @@ impl SimulationStep {
 }
 
 pub struct AgentJourney {
-    pub origin_stop: StopIndex,
     pub origin_trip: GlobalTripIndex,
-    pub dest_stop: StopIndex,
     pub dest_trip: GlobalTripIndex,
-    pub count: AgentCount,
-    pub start_time: Timestamp,
     pub duration: Timestamp,
     pub crowding_cost: CrowdingCost,
     pub num_transfers: u8,
@@ -219,6 +215,10 @@ pub struct AgentJourney {
 pub struct AgentJourneyResult {
     pub sim_step_idx: u32,
     pub journey_idx: u32,
+    pub origin_stop: StopIndex,
+    pub dest_stop: StopIndex,
+    pub start_time: Timestamp,
+    pub count: AgentCount,
     pub result: Result<AgentJourney, JourneyError>,
 }
 
@@ -316,6 +316,10 @@ fn run_simulation_round(network: &Network,
                     AgentJourneyResult {
                         sim_step_idx,
                         journey_idx,
+                        origin_stop: sim_step.origin_stop,
+                        dest_stop: sim_step.dest_stops[journey_idx as usize],
+                        start_time: sim_step.departure_time,
+                        count: 0,
                         result: Err(JourneyError::NoJourneyFound),
                     }
                 }));
@@ -352,6 +356,10 @@ fn run_simulation_round(network: &Network,
                             Err(err) => return AgentJourneyResult {
                                 sim_step_idx,
                                 journey_idx,
+                                origin_stop: sim_step.origin_stop,
+                                dest_stop,
+                                start_time: sim_step.departure_time,
+                                count,
                                 result: Err(err),
                             },
                         };
@@ -361,6 +369,10 @@ fn run_simulation_round(network: &Network,
                             return AgentJourneyResult {
                                 sim_step_idx,
                                 journey_idx,
+                                origin_stop: sim_step.origin_stop,
+                                dest_stop,
+                                start_time: sim_step.departure_time,
+                                count,
                                 result: Err(JourneyError::NoJourneyFound),
                             };
                         }
@@ -402,13 +414,13 @@ fn run_simulation_round(network: &Network,
                         AgentJourneyResult {
                             sim_step_idx,
                             journey_idx,
+                            origin_stop: sim_step.origin_stop,
+                            dest_stop,
+                            start_time: sim_step.departure_time,
+                            count,
                             result: Ok(AgentJourney {
-                                origin_stop: sim_step.origin_stop,
                                 origin_trip,
-                                dest_stop,
                                 dest_trip,
-                                count,
-                                start_time: sim_step.departure_time,
                                 duration: journey.duration,
                                 crowding_cost: journey.cost,
                                 num_transfers: (journey.legs.len() - 1) as u8,

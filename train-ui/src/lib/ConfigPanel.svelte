@@ -54,7 +54,7 @@
     }
   }
 
-  let modelDate = "2024-05-10";
+  let modelDate = "2024-05-20";
 
   let numRounds = 3;
   let bagSize = 3;

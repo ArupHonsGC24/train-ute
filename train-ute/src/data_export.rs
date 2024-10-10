@@ -408,37 +408,37 @@ pub fn export_agent_journeys(writer: impl Write + Send, network: &Network, simul
         for round in 0..simulation_result.round_agent_journeys.len() {
             let journey = &simulation_result.round_agent_journeys[round][i];
             match &journey.result {
-                Ok(journey) => {
+                Ok(result) => {
                     if legs {
-                        for leg in &journey.legs {
+                        for leg in &result.legs {
                             agent_ids.push(i as u32);
                             status.push("Ok");
-                            round_number.push(Some(round as u32));
+                            round_number.push(round as u32);
 
-                            origins.push(Some(network.stops[leg.boarded_stop as usize].name.as_ref()));
+                            origins.push(network.stops[leg.boarded_stop as usize].name.as_ref());
                             origin_trip_ids.push(Some(network.get_trip_id(leg.trip)));
-                            destinations.push(Some(network.stops[leg.arrival_stop as usize].name.as_ref()));
+                            destinations.push(network.stops[leg.arrival_stop as usize].name.as_ref());
 
                             journey_times_ms.push(Some(sec_to_milli(leg.arrival_time - leg.boarded_time)));
-                            journey_start_times_ms.push(Some(sec_to_milli(leg.boarded_time)));
-                            agent_counts.push(Some(journey.count as u32));
+                            journey_start_times_ms.push(sec_to_milli(leg.boarded_time));
+                            agent_counts.push(journey.count as u32);
                         }
                     } else {
                         agent_ids.push(i as u32);
                         status.push("Ok");
-                        round_number.push(Some(round as u32));
+                        round_number.push(round as u32);
 
-                        origins.push(Some(network.stops[journey.origin_stop as usize].name.as_ref()));
-                        origin_trip_ids.push(Some(network.get_trip_id(journey.origin_trip)));
+                        origins.push(network.stops[journey.origin_stop as usize].name.as_ref());
+                        origin_trip_ids.push(Some(network.get_trip_id(result.origin_trip)));
 
-                        destinations.push(Some(network.stops[journey.dest_stop as usize].name.as_ref()));
-                        destination_trip_ids.push(Some(network.get_trip_id(journey.dest_trip)));
+                        destinations.push(network.stops[journey.dest_stop as usize].name.as_ref());
+                        destination_trip_ids.push(Some(network.get_trip_id(result.dest_trip)));
 
-                        journey_times_ms.push(Some(sec_to_milli(journey.duration)));
-                        journey_start_times_ms.push(Some(sec_to_milli(journey.start_time)));
-                        crowding_costs.push(Some(journey.crowding_cost));
-                        num_transfers.push(Some(journey.num_transfers as u32));
-                        agent_counts.push(Some(journey.count as u32));
+                        journey_times_ms.push(Some(sec_to_milli(result.duration)));
+                        journey_start_times_ms.push(sec_to_milli(journey.start_time));
+                        crowding_costs.push(Some(result.crowding_cost));
+                        num_transfers.push(Some(result.num_transfers as u32));
+                        agent_counts.push(journey.count as u32);
                     }
                 }
                 Err(err) => {
@@ -448,18 +448,18 @@ pub fn export_agent_journeys(writer: impl Write + Send, network: &Network, simul
                         JourneyError::InfiniteLoop => "Infinite loop",
                     });
 
-                    round_number.push(None);
-                    origins.push(None);
+                    round_number.push(round as u32);
+                    origins.push(network.stops[journey.origin_stop as usize].name.as_ref());
                     origin_trip_ids.push(None);
 
-                    destinations.push(None);
+                    destinations.push(network.stops[journey.dest_stop as usize].name.as_ref());
                     destination_trip_ids.push(None);
 
                     journey_times_ms.push(None);
-                    journey_start_times_ms.push(None);
+                    journey_start_times_ms.push(sec_to_milli(journey.start_time));
                     crowding_costs.push(None);
                     num_transfers.push(None);
-                    agent_counts.push(None);
+                    agent_counts.push(journey.count as u32);
                 }
             }
         }
@@ -474,16 +474,16 @@ pub fn export_agent_journeys(writer: impl Write + Send, network: &Network, simul
     let status_field = Field::new("Status", status_arr.data_type().clone(), false);
 
     let round_number_arr = Arc::new(UInt32Array::from(round_number.clone()));
-    let round_number_field = Field::new("Round_Number", round_number_arr.data_type().clone(), true);
+    let round_number_field = Field::new("Round_Number", round_number_arr.data_type().clone(), false);
 
     let origins_arr = Arc::new(StringArray::from(origins.clone()));
-    let origins_field = Field::new("Origin_Station", origins_arr.data_type().clone(), true);
+    let origins_field = Field::new("Origin_Station", origins_arr.data_type().clone(), false);
 
     let origin_trips_arr = Arc::new(StringArray::from(origin_trip_ids.clone()));
     let origin_trips_field = Field::new("Origin_Trip_ID", origin_trips_arr.data_type().clone(), true);
 
     let destinations_arr = Arc::new(StringArray::from(destinations.clone()));
-    let destination_field = Field::new("Destination_Station", destinations_arr.data_type().clone(), true);
+    let destination_field = Field::new("Destination_Station", destinations_arr.data_type().clone(), false);
 
     let destination_trips_arr = Arc::new(StringArray::from(destination_trip_ids.clone()));
     let destination_trips_field = Field::new("Destination_Trip_ID", destination_trips_arr.data_type().clone(), true);
@@ -492,7 +492,7 @@ pub fn export_agent_journeys(writer: impl Write + Send, network: &Network, simul
     let journey_durations_field = Field::new("Journey_Duration", journey_durations_arr.data_type().clone(), true);
 
     let journey_start_times_arr = Arc::new(Time32MillisecondArray::from(journey_start_times_ms.clone()));
-    let journey_start_times_field = Field::new("Journey_Start_Time", journey_start_times_arr.data_type().clone(), true);
+    let journey_start_times_field = Field::new("Journey_Start_Time", journey_start_times_arr.data_type().clone(), false);
 
     let crowding_costs_arr = Arc::new(Float32Array::from(crowding_costs.clone()));
     let crowding_costs_field = Field::new("Crowding_Cost", crowding_costs_arr.data_type().clone(), true);
@@ -501,7 +501,7 @@ pub fn export_agent_journeys(writer: impl Write + Send, network: &Network, simul
     let num_transfers_field = Field::new("Num_Transfers", num_transfers_arr.data_type().clone(), true);
 
     let agent_counts_arr = Arc::new(UInt32Array::from(agent_counts.clone()));
-    let agent_counts_field = Field::new("Agent_Count", agent_counts_arr.data_type().clone(), true);
+    let agent_counts_field = Field::new("Agent_Count", agent_counts_arr.data_type().clone(), false);
 
     let schema = if legs {
         Arc::new(Schema::new(vec![
