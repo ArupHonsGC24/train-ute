@@ -68,7 +68,10 @@
   let simulationResultsValid = false;
 
   async function generateNetwork() {
-    await callBackendWithWaitCursor("gen_network", { modelDate, modeFilter: "rail" });
+    await callBackendWithWaitCursor("gen_network", {
+      modelDate,
+   //   modeFilter: "rail"
+    });
     networkValid = true;
   }
 

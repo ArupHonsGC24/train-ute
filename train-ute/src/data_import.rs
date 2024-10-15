@@ -1,6 +1,6 @@
 use crate::simulation::{AgentCount, PopulationCount, SimulationStep, TripCapacity};
 use arrow::array::AsArray;
-use arrow::datatypes::{Int32Type, Time64MicrosecondType};
+use arrow::datatypes::{Int32Type, Int64Type, Time64MicrosecondType, Time64NanosecondType};
 use chrono::NaiveDate;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use parquet::file::reader::ChunkReader;
@@ -91,22 +91,23 @@ pub fn build_simulation_steps_from_patronage_data(reader: impl ChunkReader + 'st
         // We want to know if the reader returns an error.
         let batch = batch?;
 
+        // TODO: This could accept more different types (different string types, time types).
         let origins = batch.column_by_name("Origin_Station")
                            .ok_or(DataImportError::ColumnNotFound("Origin_Station"))?
-            .as_string_opt::<i32>()
-            .ok_or(DataImportError::ColumnWrongFormat("Departure_Time", "String"))?;
+            .as_string_opt::<i64>()
+            .ok_or(DataImportError::ColumnWrongFormat("Origin_Station", "String"))?;
         let destinations = batch.column_by_name("Destination_Station")
                                 .ok_or(DataImportError::ColumnNotFound("Destination_Station"))?
-            .as_string_opt::<i32>()
-            .ok_or(DataImportError::ColumnWrongFormat("Departure_Time", "String"))?;
-        let departure_times_us = batch.column_by_name("Departure_Time")
+            .as_string_opt::<i64>()
+            .ok_or(DataImportError::ColumnWrongFormat("Destination_Station", "String"))?;
+        let departure_times_ns = batch.column_by_name("Departure_Time")
                                       .ok_or(DataImportError::ColumnNotFound("Departure_Time"))?
-            .as_primitive_opt::<Time64MicrosecondType>()
-            .ok_or(DataImportError::ColumnWrongFormat("Departure_Time", "Time64Microsecond"))?;
+            .as_primitive_opt::<Time64NanosecondType>()
+            .ok_or(DataImportError::ColumnWrongFormat("Departure_Time", "Time64Nanosecond"))?;
         let num_agents = batch.column_by_name("Agent_Count")
                               .ok_or(DataImportError::ColumnNotFound("Agent_Count"))?
-            .as_primitive_opt::<Int32Type>()
-            .ok_or(DataImportError::ColumnWrongFormat("Agent_Count", "Int32"))?
+            .as_primitive_opt::<Int64Type>()
+            .ok_or(DataImportError::ColumnWrongFormat("Agent_Count", "Int64"))?
             .values();
 
         for i in 0..batch.num_rows() {
@@ -119,8 +120,8 @@ pub fn build_simulation_steps_from_patronage_data(reader: impl ChunkReader + 'st
                 continue;
             };
 
-            // Convert from microseconds to seconds.
-            let departure_time = (departure_times_us.value(i) / 1_000_000) as Timestamp;
+            // Convert from nanoseconds to seconds.
+            let departure_time = (departure_times_ns.value(i) / 1_000_000_000) as Timestamp;
             let count = num_agents[i] as AgentCount;
 
             let simulation_step = simulation_steps.entry((departure_time, origin_stop))
