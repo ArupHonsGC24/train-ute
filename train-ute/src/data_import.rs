@@ -1,6 +1,6 @@
 use crate::simulation::{AgentCount, PopulationCount, SimulationStep, TripCapacity};
 use arrow::array::AsArray;
-use arrow::datatypes::{Int32Type, Int64Type, Time64MicrosecondType, Time64NanosecondType};
+use arrow::datatypes::{Int64Type, Time64NanosecondType};
 use chrono::NaiveDate;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use parquet::file::reader::ChunkReader;
@@ -16,8 +16,6 @@ pub enum DataImportError {
     Parquet(#[from] parquet::errors::ParquetError),
     #[error("Arrow error: {0}")]
     Arrow(#[from] arrow::error::ArrowError),
-    //#[error("DataFusion error: {0}")]
-    //DataFusion(#[from] datafusion::common::DataFusionError),
     #[error("No data for date {0}")]
     NoDataForDate(NaiveDate),
     #[error("Header not found: {0}")]

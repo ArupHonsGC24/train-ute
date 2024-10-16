@@ -395,13 +395,18 @@ pub fn export_agent_journeys(writer: impl Write + Send, network: &Network, simul
 
     let mut journey_times_ms = Vec::with_capacity(num_records);
     let mut journey_start_times_ms = Vec::with_capacity(num_records);
+    let mut journey_end_times_ms = Vec::with_capacity(num_records);
+    let mut leg_transfer_times_ms = Vec::with_capacity(num_records);
     let mut crowding_costs = Vec::with_capacity(num_records);
     let mut num_transfers = Vec::with_capacity(num_records);
     let mut agent_counts = Vec::with_capacity(num_records);
 
     // Convert timestamps to milliseconds because the Time32Second type is not widely supported.
-    fn sec_to_milli(sec: Timestamp) -> i32 {
-        sec as i32 * 1000
+    fn sec_to_milli(sec: i32) -> i32 {
+        sec * 1000
+    }
+    fn timestamp_to_milli(sec: Timestamp) -> i32 {
+        sec_to_milli(sec as i32)
     }
 
     for i in 0..num_agents {
@@ -419,8 +424,11 @@ pub fn export_agent_journeys(writer: impl Write + Send, network: &Network, simul
                             origin_trip_ids.push(Some(network.get_trip_id(leg.trip)));
                             destinations.push(network.stops[leg.arrival_stop as usize].name.as_ref());
 
-                            journey_times_ms.push(Some(sec_to_milli(leg.arrival_time - leg.boarded_time)));
-                            journey_start_times_ms.push(sec_to_milli(leg.boarded_time));
+                            journey_times_ms.push(Some(timestamp_to_milli(leg.arrival_time - leg.boarded_time)));
+                            journey_start_times_ms.push(timestamp_to_milli(leg.boarded_time));
+                            journey_end_times_ms.push(Some(timestamp_to_milli(leg.arrival_time)));
+                            leg_transfer_times_ms.push(leg.transfer_time.map(timestamp_to_milli));
+
                             agent_counts.push(journey.count as u32);
                         }
                     } else {
@@ -434,19 +442,23 @@ pub fn export_agent_journeys(writer: impl Write + Send, network: &Network, simul
                         destinations.push(network.stops[journey.dest_stop as usize].name.as_ref());
                         destination_trip_ids.push(Some(network.get_trip_id(result.dest_trip)));
 
-                        journey_times_ms.push(Some(sec_to_milli(result.duration)));
-                        journey_start_times_ms.push(sec_to_milli(journey.start_time));
+                        journey_times_ms.push(Some(timestamp_to_milli(result.duration)));
+                        journey_start_times_ms.push(timestamp_to_milli(journey.start_time));
+                        journey_end_times_ms.push(Some(timestamp_to_milli(journey.start_time + result.duration)));
+                        leg_transfer_times_ms.push(None);
+
                         crowding_costs.push(Some(result.crowding_cost));
                         num_transfers.push(Some(result.num_transfers as u32));
                         agent_counts.push(journey.count as u32);
                     }
                 }
                 Err(err) => {
-                    agent_ids.push(i as u32);
                     status.push(match err {
+                        JourneyError::ZeroAgents => continue, // Don't export zero agent count journeys.
                         JourneyError::NoJourneyFound => "No journey found",
                         JourneyError::InfiniteLoop => "Infinite loop",
                     });
+                    agent_ids.push(i as u32);
 
                     round_number.push(round as u32);
                     origins.push(network.stops[journey.origin_stop as usize].name.as_ref());
@@ -456,7 +468,10 @@ pub fn export_agent_journeys(writer: impl Write + Send, network: &Network, simul
                     destination_trip_ids.push(None);
 
                     journey_times_ms.push(None);
-                    journey_start_times_ms.push(sec_to_milli(journey.start_time));
+                    journey_start_times_ms.push(timestamp_to_milli(journey.start_time));
+                    journey_end_times_ms.push(None);
+                    leg_transfer_times_ms.push(None);
+
                     crowding_costs.push(None);
                     num_transfers.push(None);
                     agent_counts.push(journey.count as u32);
@@ -494,6 +509,12 @@ pub fn export_agent_journeys(writer: impl Write + Send, network: &Network, simul
     let journey_start_times_arr = Arc::new(Time32MillisecondArray::from(journey_start_times_ms.clone()));
     let journey_start_times_field = Field::new("Journey_Start_Time", journey_start_times_arr.data_type().clone(), false);
 
+    let journey_end_times_arr = Arc::new(Time32MillisecondArray::from(journey_end_times_ms.clone()));
+    let journey_end_times_field = Field::new("Journey_End_Time", journey_start_times_arr.data_type().clone(), true);
+
+    let leg_transfer_times_arr = Arc::new(Time32MillisecondArray::from(leg_transfer_times_ms.clone()));
+    let leg_transfer_times_field = Field::new("Leg_Transfer_Time", leg_transfer_times_arr.data_type().clone(), true);
+
     let crowding_costs_arr = Arc::new(Float32Array::from(crowding_costs.clone()));
     let crowding_costs_field = Field::new("Crowding_Cost", crowding_costs_arr.data_type().clone(), true);
 
@@ -513,6 +534,8 @@ pub fn export_agent_journeys(writer: impl Write + Send, network: &Network, simul
             destination_field,
             journey_durations_field,
             journey_start_times_field,
+            journey_end_times_field,
+            leg_transfer_times_field,
             agent_counts_field,
         ]))
     } else {
@@ -526,6 +549,7 @@ pub fn export_agent_journeys(writer: impl Write + Send, network: &Network, simul
             destination_trips_field,
             journey_durations_field,
             journey_start_times_field,
+            journey_end_times_field,
             crowding_costs_field,
             num_transfers_field,
             agent_counts_field
@@ -542,6 +566,8 @@ pub fn export_agent_journeys(writer: impl Write + Send, network: &Network, simul
             destinations_arr,
             journey_durations_arr,
             journey_start_times_arr,
+            journey_end_times_arr,
+            leg_transfer_times_arr,
             agent_counts_arr,
         ]
     } else {
@@ -555,6 +581,7 @@ pub fn export_agent_journeys(writer: impl Write + Send, network: &Network, simul
             destination_trips_arr,
             journey_durations_arr,
             journey_start_times_arr,
+            journey_end_times_arr,
             crowding_costs_arr,
             num_transfers_arr,
             agent_counts_arr

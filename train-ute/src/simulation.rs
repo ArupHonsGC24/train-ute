@@ -310,6 +310,7 @@ fn run_simulation_round(network: &Network,
             params.run_progress_callback();
 
             let sim_step_idx = sim_step_idx as u32;
+            // TODO: This doesn't account for when there are zero agents for one of the destinations.
             if sim_step.count() == 0 {
                 // Ignore zero-count agents.
                 return Either::Left((0..sim_step.dest_stops.len() as u32).map(move |journey_idx| {
@@ -320,7 +321,7 @@ fn run_simulation_round(network: &Network,
                         dest_stop: sim_step.dest_stops[journey_idx as usize],
                         start_time: sim_step.departure_time,
                         count: 0,
-                        result: Err(JourneyError::NoJourneyFound),
+                        result: Err(JourneyError::ZeroAgents),
                     }
                 }));
             }
@@ -351,6 +352,19 @@ fn run_simulation_round(network: &Network,
             Either::Right(
                 izip!(0..journeys.len() as u32, journeys.into_iter(), &sim_step.counts, &sim_step.dest_stops)
                     .map(move |(journey_idx, journey, &count, &dest_stop)| {
+                        if count == 0 {
+                            // Ignore zero-count agents.
+                            return AgentJourneyResult {
+                                sim_step_idx,
+                                journey_idx,
+                                origin_stop: sim_step.origin_stop,
+                                dest_stop,
+                                start_time: sim_step.departure_time,
+                                count,
+                                result: Err(JourneyError::ZeroAgents),
+                            };
+                        }
+
                         let journey = match journey {
                             Ok(journey) => journey,
                             Err(err) => return AgentJourneyResult {
