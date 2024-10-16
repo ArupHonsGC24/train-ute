@@ -1,4 +1,4 @@
-# The "Who's on Board?" Rail Service Demand model.
+# The "Who's on Board?" Rail Service Demand Model
 
 This is the main repository for the "Who's on Board?" model, a method of assigning passenger trips from origin-destination trip data derived from smart card systems.
 This software was created for a Bachelor of Science Advanced: Global Challenges honours project.
