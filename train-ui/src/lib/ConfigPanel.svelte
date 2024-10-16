@@ -186,7 +186,7 @@
   <CrowdingModelSelector bind:crowdingFunc bind:defaultTripCapacity bind:costUtility />
 
   <div class="cfg-label">
-    <label for="round-num"># of Rounds:</label>
+    <label for="round-num">Rounds:</label>
     <input
       type="range"
       id="round-num"
@@ -200,7 +200,7 @@
   </div>
 
   <div class="cfg-label">
-    <label for="bag-size"># Journey Options Considered:</label>
+    <label for="bag-size">Journey Options Considered:</label>
     <input
       type="range"
       id="bag-size"
