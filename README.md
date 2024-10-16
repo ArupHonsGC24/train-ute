@@ -1,21 +1,21 @@
-# Train Ute Model
+# The "Who's on Board?" Rail Service Demand model.
 
-This is the main repository for the Train Ute model, a method of assigning passenger trips from origin-destination trip data derived from smart card systems.
+This is the main repository for the "Who's on Board?" model, a method of assigning passenger trips from origin-destination trip data derived from smart card systems.
 This software was created for a Bachelor of Science Advanced: Global Challenges honours project.
 
 The design decisions have been informed by using this model for Melbourne's metropolitan train network, but in principle the model should be generally applicable given sufficient data.
 
 ## Building
 
-This project uses Rust for the backend, and Svelte for the frontend (enabled by the Tauri framework). To set up the project, you will need Rust and Node.js/whatever you like that can read package.lock files.
+This project uses Rust for the backend, and Svelte for the frontend (enabled by the Tauri framework). To set up the project, you will need Rust and Node.js/whatever you like that can read package.json files.
 The Raptor submodule is a self-contained crate that contains the pathfinding logic, so you'll need to clone with submodules:
 ```bash
 git clone -recurse-submodules https://github.com/ArupHonsGC24/train-ute.git
 ```
 
-From there, you'll need to install the v2.0 RC version of the Tauri CLI tool:
+From there, you'll need to install the v2.0 version of the Tauri CLI tool:
 ```bash
-cargo install tauri-cli --version "^2.0.0-rc" --locked
+cargo install tauri-cli --locked
 ```
 
 Then from the project directory run
@@ -42,4 +42,4 @@ Currently, the patronage data needs to be in a specific format. Due to its size 
 | Ferntree Gully           | Southern Cross                | 08:15:00                               | 3                   |
 | ...                      | ...                           | ...                                    | ...                 |
 
-There is also a option to use randomised patronage data (a generated list of randomly selected pairs of points across the network).
+There is also a option to use randomised patronage data (a generated list of randomly selected pairs of points across the network), which lets you get a feel for how the model works.
