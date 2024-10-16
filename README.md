@@ -10,7 +10,7 @@ The design decisions have been informed by using this model for Melbourne's metr
 This project uses Rust for the backend, and Svelte for the frontend (enabled by the Tauri framework). To set up the project, you will need Rust and Node.js/whatever you like that can read package.json files.
 The Raptor submodule is a self-contained crate that contains the pathfinding logic, so you'll need to clone with submodules:
 ```bash
-git clone -recurse-submodules https://github.com/ArupHonsGC24/train-ute.git
+git clone -recurse-submodules https://github.com/ArupHonsGC24/whos_on_board.git
 ```
 
 From there, you'll need to install the v2.0 version of the Tauri CLI tool:
