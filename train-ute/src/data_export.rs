@@ -375,6 +375,14 @@ pub fn export_stops_csv(path: &Path, network: &Network) -> Result<(), DataExport
     Ok(())
 }
 
+// Convert timestamps to milliseconds because the Time32Second type is not widely supported.
+fn sec_to_milli(sec: i32) -> i32 {
+    sec * 1000
+}
+fn timestamp_to_milli(sec: Timestamp) -> i32 {
+    sec_to_milli(sec as i32)
+}
+
 pub fn export_agent_journeys(writer: impl Write + Send, network: &Network, simulation_result: &SimulationResult, legs: bool) -> Result<(), DataExportError> {
     let num_records = simulation_result.round_agent_journeys.iter().fold(0, |acc, journeys| acc + journeys.len());
 
@@ -400,14 +408,6 @@ pub fn export_agent_journeys(writer: impl Write + Send, network: &Network, simul
     let mut crowding_costs = Vec::with_capacity(num_records);
     let mut num_transfers = Vec::with_capacity(num_records);
     let mut agent_counts = Vec::with_capacity(num_records);
-
-    // Convert timestamps to milliseconds because the Time32Second type is not widely supported.
-    fn sec_to_milli(sec: i32) -> i32 {
-        sec * 1000
-    }
-    fn timestamp_to_milli(sec: Timestamp) -> i32 {
-        sec_to_milli(sec as i32)
-    }
 
     for i in 0..num_agents {
         for round in 0..simulation_result.round_agent_journeys.len() {
@@ -599,6 +599,135 @@ pub fn export_agent_journeys(writer: impl Write + Send, network: &Network, simul
             .set_column_dictionary_enabled("Status".into(), use_dictionary)
             .set_column_dictionary_enabled("Origin_Station".into(), use_dictionary)
             .set_column_dictionary_enabled("Destination_Station".into(), use_dictionary)
+            .build();
+        let mut writer = ArrowWriter::try_new(writer, record_batch.schema(), Some(props))?;
+
+        writer.write(&record_batch)?;
+
+        writer.close()?;
+    }
+
+    Ok(())
+}
+
+pub fn export_agent_transfers(writer: impl Write + Send, network: &Network, simulation_result: &SimulationResult) -> Result<(), DataExportError> {
+    let num_records = simulation_result.round_agent_journeys.iter().fold(0, |acc, journeys| acc + journeys.len());
+
+    let num_agents = simulation_result.round_agent_journeys.first().ok_or(DataExportError::NoData)?.len();
+    for agent_journeys in simulation_result.round_agent_journeys.iter() {
+        assert_eq!(agent_journeys.len(), num_agents, "Agent journey count does not match agent count.");
+    }
+
+    let mut agent_ids = Vec::with_capacity(num_records);
+    let mut status = Vec::with_capacity(num_records);
+    let mut round_number = Vec::with_capacity(num_records);
+
+    let mut incoming_trip_ids = Vec::with_capacity(num_records);
+    let mut transfer_station = Vec::with_capacity(num_records);
+    let mut outgoing_trip_ids = Vec::with_capacity(num_records);
+
+    let mut leg_transfer_times_ms = Vec::with_capacity(num_records);
+    let mut agent_counts = Vec::with_capacity(num_records);
+
+    for i in 0..num_agents {
+        for round in 0..simulation_result.round_agent_journeys.len() {
+            let journey = &simulation_result.round_agent_journeys[round][i];
+            match &journey.result {
+                Ok(result) => {
+                    for (incoming, outgoing) in result.legs.iter().tuple_windows() {
+                        agent_ids.push(i as u32);
+                        status.push("Ok");
+                        round_number.push(round as u32);
+
+                        assert_eq!(network.stops[incoming.arrival_stop as usize].name, network.stops[outgoing.boarded_stop as usize].name);
+
+                        incoming_trip_ids.push(Some(network.get_trip_id(incoming.trip)));
+                        transfer_station.push(Some(network.stops[incoming.arrival_stop as usize].name.as_ref()));
+                        outgoing_trip_ids.push(Some(network.get_trip_id(outgoing.trip)));
+
+                        leg_transfer_times_ms.push(incoming.transfer_time.map(timestamp_to_milli));
+
+                        agent_counts.push(journey.count as u32);
+                    }
+                }
+                Err(err) => {
+                    status.push(match err {
+                        JourneyError::ZeroAgents => continue, // Don't export zero agent count journeys.
+                        JourneyError::NoJourneyFound => "No journey found",
+                        JourneyError::InfiniteLoop => "Infinite loop",
+                    });
+                    agent_ids.push(i as u32);
+
+                    round_number.push(round as u32);
+                    incoming_trip_ids.push(None);
+                    transfer_station.push(None);
+                    outgoing_trip_ids.push(None);
+
+                    leg_transfer_times_ms.push(None);
+
+                    agent_counts.push(journey.count as u32);
+                }
+            }
+        }
+    }
+
+    // Set up arrow arrays.
+
+    let agent_ids_arr = Arc::new(UInt32Array::from(agent_ids.clone()));
+    let agent_ids_field = Field::new("Agent_Id", agent_ids_arr.data_type().clone(), false);
+
+    let status_arr = Arc::new(StringArray::from(status.clone()));
+    let status_field = Field::new("Status", status_arr.data_type().clone(), false);
+
+    let round_number_arr = Arc::new(UInt32Array::from(round_number.clone()));
+    let round_number_field = Field::new("Round_Number", round_number_arr.data_type().clone(), false);
+
+    let incoming_trip_arr = Arc::new(StringArray::from(incoming_trip_ids.clone()));
+    let incoming_trip_field = Field::new("Incoming_Trip_ID", incoming_trip_arr.data_type().clone(), true);
+
+    let transfer_station_arr = Arc::new(StringArray::from(transfer_station.clone()));
+    let transfer_station_field = Field::new("Transfer_Station", transfer_station_arr.data_type().clone(), true);
+
+    let outgoing_trip_arr = Arc::new(StringArray::from(outgoing_trip_ids.clone()));
+    let outgoing_trip_field = Field::new("Outgoing_Trip_ID", outgoing_trip_arr.data_type().clone(), true);
+
+    let leg_transfer_times_arr = Arc::new(Time32MillisecondArray::from(leg_transfer_times_ms.clone()));
+    let leg_transfer_times_field = Field::new("Leg_Transfer_Time", leg_transfer_times_arr.data_type().clone(), true);
+
+    let agent_counts_arr = Arc::new(UInt32Array::from(agent_counts.clone()));
+    let agent_counts_field = Field::new("Agent_Count", agent_counts_arr.data_type().clone(), false);
+
+    let schema = Arc::new(Schema::new(vec![
+        agent_ids_field,
+        status_field,
+        round_number_field,
+        incoming_trip_field,
+        transfer_station_field,
+        outgoing_trip_field,
+        leg_transfer_times_field,
+        agent_counts_field,
+    ]));
+
+    let arrays: Vec<ArrayRef> = vec![
+            agent_ids_arr,
+            status_arr,
+            round_number_arr,
+            incoming_trip_arr,
+            transfer_station_arr,
+            outgoing_trip_arr,
+            leg_transfer_times_arr,
+            agent_counts_arr,
+        ];
+
+    let record_batch = arrow::record_batch::RecordBatch::try_new(schema, arrays)?;
+
+    // Write to parquet.
+    {
+        let use_dictionary = true;
+        let props = WriterProperties::builder()
+            .set_compression(Compression::SNAPPY)
+            .set_column_dictionary_enabled("Status".into(), use_dictionary)
+            .set_column_dictionary_enabled("Transfer_Station".into(), use_dictionary)
             .build();
         let mut writer = ArrowWriter::try_new(writer, record_batch.schema(), Some(props))?;
 

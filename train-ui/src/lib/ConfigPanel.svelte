@@ -246,6 +246,13 @@
       disabledTooltip="Run simulation first."
       on:click={() => callBackendWithWaitCursor("export_journeys", { legs: true })}
     />
+    <Button
+      text="Export Transfers"
+      class="cfg-style"
+      disabled={!simulationResultsValid}
+      disabledTooltip="Run simulation first."
+      on:click={() => callBackendWithWaitCursor("export_transfers")}
+    />
   </div>
 </div>
 

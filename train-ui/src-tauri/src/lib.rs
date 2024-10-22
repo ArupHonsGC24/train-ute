@@ -379,6 +379,30 @@ async fn export_journeys(legs: bool, app: AppHandle, state: State<'_, AppState>)
 }
 
 #[tauri::command]
+async fn export_transfers(app: AppHandle, state: State<'_, AppState>) -> CmdResult<()> {
+    let app_data = state.data.lock()?;
+
+    let network = app_data.get_network()?;
+    let sim_result = app_data.get_sim_result()?;
+
+    let filename = "transfers";
+
+    let Some(filepath) = app.dialog()
+                            .file()
+                            .set_file_name(filename)
+                            .add_filter("Parquet", PARQUET_FILTER)
+                            .blocking_save_file() else {
+        // User cancelled.
+        return Ok(());
+    };
+
+    let filepath = filepath.as_path().ok_or(CmdError::PathConversion(filepath.clone()))?;
+    data_export::export_agent_transfers(File::create(filepath.with_extension("parquet"))?, network, sim_result)?;
+
+    Ok(())
+}
+
+#[tauri::command]
 fn get_path_data(state: State<'_, AppState>) -> CmdResult<ipc::Response> {
     let app_data = state.data.lock()?;
     Ok(ipc::Response::new(app_data.path_data.clone()))
@@ -409,7 +433,8 @@ pub fn run() {
             export_model_csv,
             run_simulation, 
             export_counts, 
-            export_journeys, 
+            export_journeys,
+            export_transfers,
             get_trip_data, 
             get_path_data
         ])
