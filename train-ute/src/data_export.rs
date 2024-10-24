@@ -3,7 +3,7 @@ use std::io::Write;
 use std::path::Path;
 use std::sync::Arc;
 
-use arrow::array::{Array, ArrayRef, Float32Array, StringArray, Time32MillisecondArray, TimestampMillisecondArray, UInt32Array};
+use arrow::array::{Array, ArrayRef, Float32Array, StringArray, Time32MillisecondArray, Time64MicrosecondArray, TimestampMillisecondArray, UInt32Array};
 use arrow::datatypes::{Field, Schema};
 use itertools::{izip, Itertools};
 use parquet::arrow::ArrowWriter;
@@ -250,6 +250,7 @@ pub fn export_agent_counts(path: &Path, network: &Network, simulation_result: &S
     let mut trip_seated = Vec::new();
     let mut trip_standing = Vec::new();
     let mut timestamps = Vec::new(); // Unix timestamps in milliseconds.
+    let mut durations = Vec::new();
     let mut departures = Vec::new();
     let mut departure_ids = Vec::new();
     let mut arrivals = Vec::new();
@@ -263,16 +264,20 @@ pub fn export_agent_counts(path: &Path, network: &Network, simulation_result: &S
             let trip_range = route.get_trip_range(trip);
 
             let stop_times_ms = network.stop_times[trip_range.clone()].iter().map(|stop_time| {
-                (date_timestamp + stop_time.departure_time as i64) * 1000 // Convert to milliseconds, as seconds is not as widely supported.
+                    (date_timestamp + stop_time.departure_time as i64) * 1000 // Convert to milliseconds, as seconds is not as widely supported.
+            });
+            let durations_ms = network.stop_times[trip_range.clone()].iter().tuple_windows().map(|(dep, arr)| {
+                (arr.arrival_time - dep.departure_time) as i64 * 1000 * 1000 // Convert to microseconds.
             });
             let stops = route.get_stops(&network.route_stops).iter().tuple_windows();
             let trip_agent_counts = &simulation_result.population_count[trip_range.clone()];
 
-            for ((&dep_stop_idx, &arr_stop_idx), time_ms, &agent_count) in izip!(stops, stop_times_ms, trip_agent_counts) {
+            for ((&dep_stop_idx, &arr_stop_idx), time_ms, duration_ms, &agent_count) in izip!(stops, stop_times_ms, durations_ms, trip_agent_counts) {
                 trip_ids.push(trip_id);
                 trip_seated.push(trip_capacity.seated as u32);
                 trip_standing.push(trip_capacity.standing as u32);
                 timestamps.push(time_ms);
+                durations.push(duration_ms);
                 departures.push(network.stops[dep_stop_idx as usize].name.as_ref());
                 departure_ids.push(network.stops[dep_stop_idx as usize].id.as_ref());
                 arrivals.push(network.stops[arr_stop_idx as usize].name.as_ref());
@@ -280,8 +285,12 @@ pub fn export_agent_counts(path: &Path, network: &Network, simulation_result: &S
                 assert!(agent_count >= 0, "Negative agent count: {}", agent_count);
                 agent_counts.push(agent_count as u32);
             }
+
+            assert_eq!(*trip_agent_counts.last().unwrap(), 0)
         }
     }
+
+    // TODO: Rename these fields to Trip_Name, Seated_Capacity, Standing_Capacity, Departure_Time, Departure_Station, Departure_Station_ID,  Arrival_Station, Arrival_Station_ID, Agent_Count.
 
     // Set up arrow arrays.
     let trip_id_arr = Arc::new(StringArray::from(trip_ids.clone()));
@@ -295,6 +304,9 @@ pub fn export_agent_counts(path: &Path, network: &Network, simulation_result: &S
 
     let timestamps_arr = Arc::new(TimestampMillisecondArray::from(timestamps.clone()));
     let timestamp_field = Field::new("timestamp", timestamps_arr.data_type().clone(), false);
+
+    let durations_arr = Arc::new(Time64MicrosecondArray::from(durations.clone()));
+    let durations_field = Field::new("Duration", durations_arr.data_type().clone(), false);
 
     let departures_arr = Arc::new(StringArray::from(departures.clone()));
     let departures_field = Field::new("departure", departures_arr.data_type().clone(), false);
@@ -316,6 +328,7 @@ pub fn export_agent_counts(path: &Path, network: &Network, simulation_result: &S
         trip_seated_field,
         trip_standing_field,
         timestamp_field,
+        durations_field,
         departures_field,
         departure_ids_field,
         arrivals_field,
@@ -323,12 +336,12 @@ pub fn export_agent_counts(path: &Path, network: &Network, simulation_result: &S
         agent_counts_field
     ]));
 
-    // TODO: A record batch per trip? Sort trips by earliest departure time?
     let record_batch = arrow::record_batch::RecordBatch::try_new(schema, vec![
         trip_id_arr,
         trip_seated_arr,
         trip_standing_arr,
         timestamps_arr,
+        durations_arr,
         departures_arr,
         departure_ids_arr,
         arrivals_arr,
