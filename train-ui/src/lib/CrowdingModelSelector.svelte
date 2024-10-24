@@ -17,7 +17,7 @@
   import Button from "$lib/Button.svelte";
   import { callBackend, callBackendWithWaitCursor } from "$lib/utilities";
 
-  let crowdingFuncType: CrowdingFuncType = "oneStep";
+  let crowdingFuncType: CrowdingFuncType = "twoStep";
   export let defaultTripCapacity: TripCapacity = {
     seated: 528,
     standing: 266,
@@ -25,9 +25,9 @@
   let a0 = 0.25;
   let a1 = 0.5;
   let a = 5;
-  let b = 1;
-  let c = 0.01;
-  export let crowdingFunc: CrowdingFunc = { func: crowdingFuncType, params: { a0, a, b } };
+  let b = 0.5;
+  let c = 0.02;
+  export let crowdingFunc: CrowdingFunc = { func: crowdingFuncType, params: { a0, a1, a, b, c } };
   export let costUtility = 0.5;
 
   $: {
