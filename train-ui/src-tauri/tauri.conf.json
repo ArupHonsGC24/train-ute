@@ -1,7 +1,7 @@
 {
-  "productName": "Train Ute Model",
-  "version": "0.1.0",
-  "identifier": "com.blendersleuth.train-ute",
+  "productName": "Whos on Board",
+  "version": "0.8.0",
+  "identifier": "com.blendersleuth.whos-on-board",
   "build": {
     "devUrl": "http://localhost:5173",
     "beforeDevCommand": "npm run dev",
@@ -11,7 +11,7 @@
   "app": {
     "windows": [
       {
-        "title": "Train Ute Model",
+        "title": "Who's on Board?",
         "minWidth": 1400,
         "minHeight": 750,
         "resizable": true,
