@@ -89,7 +89,7 @@ pub fn build_simulation_steps_from_patronage_data(reader: impl ChunkReader + 'st
         // We want to know if the reader returns an error.
         let batch = batch?;
 
-        // TODO: This could accept more different types (different string types, time types).
+        // TODO: This could accept more different types (different int, string and time types).
         let origins = batch.column_by_name("Origin_Station")
                            .ok_or(DataImportError::ColumnNotFound("Origin_Station"))?
             .as_string_opt::<i64>()

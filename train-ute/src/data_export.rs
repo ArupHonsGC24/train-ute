@@ -3,7 +3,7 @@ use std::io::Write;
 use std::path::Path;
 use std::sync::Arc;
 
-use arrow::array::{Array, ArrayRef, Float32Array, StringArray, Time32MillisecondArray, Time64MicrosecondArray, TimestampMillisecondArray, UInt32Array};
+use arrow::array::{Array, ArrayRef, Float32Array, StringArray, Time64MicrosecondArray, TimestampMillisecondArray, UInt32Array};
 use arrow::datatypes::{Field, Schema};
 use itertools::{izip, Itertools};
 use parquet::arrow::ArrowWriter;
@@ -250,7 +250,6 @@ pub fn export_agent_counts(path: &Path, network: &Network, simulation_result: &S
     let mut trip_seated = Vec::new();
     let mut trip_standing = Vec::new();
     let mut timestamps = Vec::new(); // Unix timestamps in milliseconds.
-    let mut durations = Vec::new();
     let mut departures = Vec::new();
     let mut departure_ids = Vec::new();
     let mut arrivals = Vec::new();
@@ -264,20 +263,16 @@ pub fn export_agent_counts(path: &Path, network: &Network, simulation_result: &S
             let trip_range = route.get_trip_range(trip);
 
             let stop_times_ms = network.stop_times[trip_range.clone()].iter().map(|stop_time| {
-                    (date_timestamp + stop_time.departure_time as i64) * 1000 // Convert to milliseconds, as seconds is not as widely supported.
-            });
-            let durations_ms = network.stop_times[trip_range.clone()].iter().tuple_windows().map(|(dep, arr)| {
-                (arr.arrival_time - dep.departure_time) as i64 * 1000 * 1000 // Convert to microseconds.
+                (date_timestamp + stop_time.departure_time as i64) * 1000 // Convert to milliseconds, as seconds is not as widely supported.
             });
             let stops = route.get_stops(&network.route_stops).iter().tuple_windows();
             let trip_agent_counts = &simulation_result.population_count[trip_range.clone()];
 
-            for ((&dep_stop_idx, &arr_stop_idx), time_ms, duration_ms, &agent_count) in izip!(stops, stop_times_ms, durations_ms, trip_agent_counts) {
+            for ((&dep_stop_idx, &arr_stop_idx), time_ms, &agent_count) in izip!(stops, stop_times_ms, trip_agent_counts) {
                 trip_ids.push(trip_id);
                 trip_seated.push(trip_capacity.seated as u32);
                 trip_standing.push(trip_capacity.standing as u32);
                 timestamps.push(time_ms);
-                durations.push(duration_ms);
                 departures.push(network.stops[dep_stop_idx as usize].name.as_ref());
                 departure_ids.push(network.stops[dep_stop_idx as usize].id.as_ref());
                 arrivals.push(network.stops[arr_stop_idx as usize].name.as_ref());
@@ -285,50 +280,42 @@ pub fn export_agent_counts(path: &Path, network: &Network, simulation_result: &S
                 assert!(agent_count >= 0, "Negative agent count: {}", agent_count);
                 agent_counts.push(agent_count as u32);
             }
-
-            assert_eq!(*trip_agent_counts.last().unwrap(), 0)
         }
     }
 
-    // TODO: Rename these fields to Trip_Name, Seated_Capacity, Standing_Capacity, Departure_Time, Departure_Station, Departure_Station_ID,  Arrival_Station, Arrival_Station_ID, Agent_Count.
-
     // Set up arrow arrays.
     let trip_id_arr = Arc::new(StringArray::from(trip_ids.clone()));
-    let trip_id_field = Field::new("trip_name", trip_id_arr.data_type().clone(), false);
+    let trip_id_field = Field::new("Trip_ID", trip_id_arr.data_type().clone(), false);
 
     let trip_seated_arr = Arc::new(UInt32Array::from(trip_seated.clone()));
-    let trip_seated_field = Field::new("seated_capacity", trip_seated_arr.data_type().clone(), false);
+    let trip_seated_field = Field::new("Seated_Capacity", trip_seated_arr.data_type().clone(), false);
 
     let trip_standing_arr = Arc::new(UInt32Array::from(trip_standing.clone()));
-    let trip_standing_field = Field::new("standing_capacity", trip_standing_arr.data_type().clone(), false);
+    let trip_standing_field = Field::new("Standing_Capacity", trip_standing_arr.data_type().clone(), false);
 
     let timestamps_arr = Arc::new(TimestampMillisecondArray::from(timestamps.clone()));
-    let timestamp_field = Field::new("timestamp", timestamps_arr.data_type().clone(), false);
-
-    let durations_arr = Arc::new(Time64MicrosecondArray::from(durations.clone()));
-    let durations_field = Field::new("Duration", durations_arr.data_type().clone(), false);
+    let timestamp_field = Field::new("Departure_Timestamp", timestamps_arr.data_type().clone(), false);
 
     let departures_arr = Arc::new(StringArray::from(departures.clone()));
-    let departures_field = Field::new("departure", departures_arr.data_type().clone(), false);
+    let departures_field = Field::new("Departure", departures_arr.data_type().clone(), false);
 
     let departure_ids_arr = Arc::new(StringArray::from(departure_ids.clone()));
-    let departure_ids_field = Field::new("departure_id", departure_ids_arr.data_type().clone(), false);
+    let departure_ids_field = Field::new("Departure_ID", departure_ids_arr.data_type().clone(), false);
 
     let arrivals_arr = Arc::new(StringArray::from(arrivals.clone()));
-    let arrivals_field = Field::new("arrival", arrivals_arr.data_type().clone(), false);
+    let arrivals_field = Field::new("Arrival", arrivals_arr.data_type().clone(), false);
 
     let arrival_ids_arr = Arc::new(StringArray::from(arrival_ids.clone()));
-    let arrival_ids_field = Field::new("arrival_id", arrival_ids_arr.data_type().clone(), false);
+    let arrival_ids_field = Field::new("Arrival_ID", arrival_ids_arr.data_type().clone(), false);
 
     let agent_counts_arr = Arc::new(UInt32Array::from(agent_counts.clone()));
-    let agent_counts_field = Field::new("count", agent_counts_arr.data_type().clone(), false);
+    let agent_counts_field = Field::new("Agent_Count", agent_counts_arr.data_type().clone(), false);
 
     let schema = Arc::new(Schema::new(vec![
         trip_id_field,
         trip_seated_field,
         trip_standing_field,
         timestamp_field,
-        durations_field,
         departures_field,
         departure_ids_field,
         arrivals_field,
@@ -341,7 +328,6 @@ pub fn export_agent_counts(path: &Path, network: &Network, simulation_result: &S
         trip_seated_arr,
         trip_standing_arr,
         timestamps_arr,
-        durations_arr,
         departures_arr,
         departure_ids_arr,
         arrivals_arr,
@@ -388,12 +374,9 @@ pub fn export_stops_csv(path: &Path, network: &Network) -> Result<(), DataExport
     Ok(())
 }
 
-// Convert timestamps to milliseconds because the Time32Second type is not widely supported.
-fn sec_to_milli(sec: i32) -> i32 {
-    sec * 1000
-}
-fn timestamp_to_milli(sec: Timestamp) -> i32 {
-    sec_to_milli(sec as i32)
+// Convert timestamps to microseconds because the Time64[Micro,Nano]second types are the most widely supported.
+fn timestamp_to_micro(sec: Timestamp) -> i64 {
+    sec as i64 * 1_000_000
 }
 
 pub fn export_agent_journeys(writer: impl Write + Send, network: &Network, simulation_result: &SimulationResult, legs: bool) -> Result<(), DataExportError> {
@@ -437,10 +420,10 @@ pub fn export_agent_journeys(writer: impl Write + Send, network: &Network, simul
                             origin_trip_ids.push(Some(network.get_trip_id(leg.trip)));
                             destinations.push(network.stops[leg.arrival_stop as usize].name.as_ref());
 
-                            journey_times_ms.push(Some(timestamp_to_milli(leg.arrival_time - leg.boarded_time)));
-                            journey_start_times_ms.push(timestamp_to_milli(leg.boarded_time));
-                            journey_end_times_ms.push(Some(timestamp_to_milli(leg.arrival_time)));
-                            leg_transfer_times_ms.push(leg.transfer_time.map(timestamp_to_milli));
+                            journey_times_ms.push(Some(timestamp_to_micro(leg.arrival_time - leg.boarded_time)));
+                            journey_start_times_ms.push(timestamp_to_micro(leg.boarded_time));
+                            journey_end_times_ms.push(Some(timestamp_to_micro(leg.arrival_time)));
+                            leg_transfer_times_ms.push(leg.transfer_time.map(timestamp_to_micro));
 
                             agent_counts.push(journey.count as u32);
                         }
@@ -455,9 +438,9 @@ pub fn export_agent_journeys(writer: impl Write + Send, network: &Network, simul
                         destinations.push(network.stops[journey.dest_stop as usize].name.as_ref());
                         destination_trip_ids.push(Some(network.get_trip_id(result.dest_trip)));
 
-                        journey_times_ms.push(Some(timestamp_to_milli(result.duration)));
-                        journey_start_times_ms.push(timestamp_to_milli(journey.start_time));
-                        journey_end_times_ms.push(Some(timestamp_to_milli(journey.start_time + result.duration)));
+                        journey_times_ms.push(Some(timestamp_to_micro(result.duration)));
+                        journey_start_times_ms.push(timestamp_to_micro(journey.start_time));
+                        journey_end_times_ms.push(Some(timestamp_to_micro(journey.start_time + result.duration)));
                         leg_transfer_times_ms.push(None);
 
                         crowding_costs.push(Some(result.crowding_cost));
@@ -481,7 +464,7 @@ pub fn export_agent_journeys(writer: impl Write + Send, network: &Network, simul
                     destination_trip_ids.push(None);
 
                     journey_times_ms.push(None);
-                    journey_start_times_ms.push(timestamp_to_milli(journey.start_time));
+                    journey_start_times_ms.push(timestamp_to_micro(journey.start_time));
                     journey_end_times_ms.push(None);
                     leg_transfer_times_ms.push(None);
 
@@ -516,16 +499,16 @@ pub fn export_agent_journeys(writer: impl Write + Send, network: &Network, simul
     let destination_trips_arr = Arc::new(StringArray::from(destination_trip_ids.clone()));
     let destination_trips_field = Field::new("Destination_Trip_ID", destination_trips_arr.data_type().clone(), true);
 
-    let journey_durations_arr = Arc::new(Time32MillisecondArray::from(journey_times_ms.clone()));
+    let journey_durations_arr = Arc::new(Time64MicrosecondArray::from(journey_times_ms.clone()));
     let journey_durations_field = Field::new("Journey_Duration", journey_durations_arr.data_type().clone(), true);
 
-    let journey_start_times_arr = Arc::new(Time32MillisecondArray::from(journey_start_times_ms.clone()));
+    let journey_start_times_arr = Arc::new(Time64MicrosecondArray::from(journey_start_times_ms.clone()));
     let journey_start_times_field = Field::new("Journey_Start_Time", journey_start_times_arr.data_type().clone(), false);
 
-    let journey_end_times_arr = Arc::new(Time32MillisecondArray::from(journey_end_times_ms.clone()));
+    let journey_end_times_arr = Arc::new(Time64MicrosecondArray::from(journey_end_times_ms.clone()));
     let journey_end_times_field = Field::new("Journey_End_Time", journey_start_times_arr.data_type().clone(), true);
 
-    let leg_transfer_times_arr = Arc::new(Time32MillisecondArray::from(leg_transfer_times_ms.clone()));
+    let leg_transfer_times_arr = Arc::new(Time64MicrosecondArray::from(leg_transfer_times_ms.clone()));
     let leg_transfer_times_field = Field::new("Leg_Transfer_Time", leg_transfer_times_arr.data_type().clone(), true);
 
     let crowding_costs_arr = Arc::new(Float32Array::from(crowding_costs.clone()));
@@ -639,7 +622,7 @@ pub fn export_agent_transfers(writer: impl Write + Send, network: &Network, simu
     let mut transfer_station = Vec::with_capacity(num_records);
     let mut outgoing_trip_ids = Vec::with_capacity(num_records);
 
-    let mut leg_transfer_times_ms = Vec::with_capacity(num_records);
+    let mut leg_transfer_times_us = Vec::with_capacity(num_records);
     let mut agent_counts = Vec::with_capacity(num_records);
 
     for i in 0..num_agents {
@@ -658,7 +641,7 @@ pub fn export_agent_transfers(writer: impl Write + Send, network: &Network, simu
                         transfer_station.push(Some(network.stops[incoming.arrival_stop as usize].name.as_ref()));
                         outgoing_trip_ids.push(Some(network.get_trip_id(outgoing.trip)));
 
-                        leg_transfer_times_ms.push(incoming.transfer_time.map(timestamp_to_milli));
+                        leg_transfer_times_us.push(incoming.transfer_time.map(timestamp_to_micro));
 
                         agent_counts.push(journey.count as u32);
                     }
@@ -676,7 +659,7 @@ pub fn export_agent_transfers(writer: impl Write + Send, network: &Network, simu
                     transfer_station.push(None);
                     outgoing_trip_ids.push(None);
 
-                    leg_transfer_times_ms.push(None);
+                    leg_transfer_times_us.push(None);
 
                     agent_counts.push(journey.count as u32);
                 }
@@ -687,7 +670,7 @@ pub fn export_agent_transfers(writer: impl Write + Send, network: &Network, simu
     // Set up arrow arrays.
 
     let agent_ids_arr = Arc::new(UInt32Array::from(agent_ids.clone()));
-    let agent_ids_field = Field::new("Agent_Id", agent_ids_arr.data_type().clone(), false);
+    let agent_ids_field = Field::new("Agent_ID", agent_ids_arr.data_type().clone(), false);
 
     let status_arr = Arc::new(StringArray::from(status.clone()));
     let status_field = Field::new("Status", status_arr.data_type().clone(), false);
@@ -704,7 +687,7 @@ pub fn export_agent_transfers(writer: impl Write + Send, network: &Network, simu
     let outgoing_trip_arr = Arc::new(StringArray::from(outgoing_trip_ids.clone()));
     let outgoing_trip_field = Field::new("Outgoing_Trip_ID", outgoing_trip_arr.data_type().clone(), true);
 
-    let leg_transfer_times_arr = Arc::new(Time32MillisecondArray::from(leg_transfer_times_ms.clone()));
+    let leg_transfer_times_arr = Arc::new(Time64MicrosecondArray::from(leg_transfer_times_us.clone()));
     let leg_transfer_times_field = Field::new("Leg_Transfer_Time", leg_transfer_times_arr.data_type().clone(), true);
 
     let agent_counts_arr = Arc::new(UInt32Array::from(agent_counts.clone()));
