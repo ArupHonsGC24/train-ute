@@ -1,6 +1,6 @@
 [package]
 name = "train-ui"
-version = "0.1.0"
+version = "0.8.0"
 description = "Train Ute Model"
 authors = ["Ben Sutherland"]
 license = ""
@@ -23,14 +23,11 @@ serde = { version = "1.0", features = ["derive"] }
 tauri = { version = "2.0.0", features = [] }
 train-ute = { path = "../../train-ute", features = ["progress_bar", "serde"] }
 raptor-rs = { path = "../../raptor-rs" }
-#tauri-plugin-fs = "2.0.0-rc.4"
 tauri-plugin-dialog = "2.0.0-rc"
-# log = "0.4.22"
-
 parquet = { version = "53.0.0" }
 arrow = { version = "53.0.0", default-features = false }
-gtfs-structures = { version = "0.41.2", default-features = false }
+gtfs-structures = { version = "0.42.0", default-features = false }
 chrono = { version = "0.4.38", default-features = false }
-thiserror = "1.0.61"
+thiserror = "2.0.0"
 log = "0.4.22"
 env_logger = "0.11.5"

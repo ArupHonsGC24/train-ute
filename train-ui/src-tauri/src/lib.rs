@@ -110,7 +110,7 @@ async fn load_gtfs(request: ipc::Request<'_>, state: State<'_, AppState>) -> Cmd
                 return Err(CmdError::PrerequisiteUnsatisfied("GTFS data must contain shapes."));
             }
 
-            log::info!("Successfully loaded GTFS data in {}ms.", gtfs.read_duration);
+            log::info!("Successfully loaded GTFS data in {:?}.", gtfs.read_duration);
             let mut app_data = state.data.lock()?;
             let date_range = DateRange {
                 // TODO: Handle empty calendar and look at calendar_dates too.
